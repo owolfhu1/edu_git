@@ -1,0 +1,29 @@
+.app-shell {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) 1fr;
+  height: 100vh;
+  background: radial-gradient(circle at top left, #f1f5f9, #cbd5f5 55%, #e2e8f0);
+  gap: 1.5rem;
+  padding: 1.5rem;
+  box-sizing: border-box;
+}
+
+.app-sidebar {
+  background: #0f172a;
+  border-radius: 22px;
+  overflow: hidden;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.25);
+}
+
+.app-main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (max-width: 900px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+}

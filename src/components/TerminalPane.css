@@ -1,0 +1,49 @@
+.terminal-pane {
+  margin-top: 1rem;
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.2);
+}
+
+.terminal-pane__header {
+  padding: 0.65rem 1rem;
+  background: #1e293b;
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.terminal-pane__body {
+  padding: 1rem;
+  font-family: "Space Mono", monospace;
+  font-size: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.terminal-pane__line--indent {
+  padding-left: 1.5rem;
+  color: #94a3b8;
+}
+
+.terminal-pane__line--prompt {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.terminal-pane__cursor {
+  width: 8px;
+  height: 14px;
+  background: #4ade80;
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
