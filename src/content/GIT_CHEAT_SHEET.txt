@@ -1,0 +1,34 @@
+Git Cheat Sheet
+
+Setup
+  git init
+
+Status + Log
+  git status
+  git diff
+  git log
+  git log --oneline
+
+Staging + Commit
+  git add <file>
+  git add .
+  git commit -m "message"
+  git commit --amend
+
+Branches
+  git branch
+  git branch -a
+  git checkout -b <name>
+  git checkout <name>
+  git switch -c <name>
+  git switch <name>
+
+Rebase
+  git rebase <branch>
+  git rebase -i <commit>
+
+Undo
+  git restore <file>
+  git restore --staged <file>
+  git reset HEAD <file>
+  git reset --hard <commit>

@@ -1,4 +1,6 @@
 import { createContext, useMemo, useState } from 'react'
+import readmeContent from '../content/README.txt?raw'
+import gitCheatSheetContent from '../content/GIT_CHEAT_SHEET.txt?raw'
 
 const FileSystemContext = createContext(null)
 
@@ -10,11 +12,17 @@ const initialTree = [
     children: [
       {
         id: 'file-readme',
-        name: 'README.tst',
+        name: 'README.txt',
         type: 'file',
-        content: `# Git Practice\n\nStart by making your first commit.\n\n- Create a file\n- Stage the file\n- Commit the changes\n`,
+        content: readmeContent,
       },
     ],
+  },
+  {
+    id: 'file-git-cheat',
+    name: 'GIT_CHEAT_SHEET.txt',
+    type: 'file',
+    content: gitCheatSheetContent,
   },
 ]
 
@@ -153,14 +161,14 @@ function FileSystemProvider({ children }) {
     )
   }
 
-  const createFile = ({ parentId, name, content = '' }) => {
+  const createFile = ({ parentId, name, content = '', autoOpen = false }) => {
     const fileName = normalizeFileName(name)
     if (!fileName) {
-      return false
+      return null
     }
     const siblings = findSiblings(tree, parentId)
     if (!siblings || siblings.some((node) => node.name === fileName)) {
-      return false
+      return null
     }
     const newFile = {
       id: `file-${Date.now()}`,
@@ -178,7 +186,11 @@ function FileSystemProvider({ children }) {
         children: [...node.children, newFile],
       }))
     })
-    return true
+    if (autoOpen) {
+      setOpenFileIds((prev) => (prev.includes(newFile.id) ? prev : [...prev, newFile.id]))
+      setSelectedFileId(newFile.id)
+    }
+    return { id: newFile.id }
   }
 
   const createFolder = ({ parentId, name }) => {

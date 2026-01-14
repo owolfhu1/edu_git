@@ -81,6 +81,9 @@
   grid-template-columns: auto 1fr;
   gap: 1rem;
   height: 100%;
+  align-items: start;
+  position: relative;
+  overflow: auto;
 }
 
 .editor-area__gutter {
@@ -91,10 +94,13 @@
   min-width: 2rem;
   user-select: none;
   overflow: hidden;
+  line-height: 1.6;
 }
 
 .editor-area__gutter-line {
   line-height: 1.6;
+  display: flex;
+  align-items: flex-start;
 }
 
 .editor-area__textarea {
@@ -108,7 +114,18 @@
   color: #0f172a;
   background: transparent;
   outline: none;
-  overflow: auto;
+  overflow: visible;
+  white-space: pre-wrap;
+}
+
+.editor-area__measure {
+  position: absolute;
+  visibility: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+  top: 0;
+  left: 0;
+  pointer-events: none;
 }
 
 .editor-area__empty {

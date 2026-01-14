@@ -5,6 +5,9 @@
   border-radius: 18px;
   overflow: hidden;
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.2);
+  display: flex;
+  flex-direction: column;
+  height: 220px;
 }
 
 .terminal-pane__header {
@@ -22,6 +25,8 @@
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+  overflow: auto;
+  flex: 1;
 }
 
 .terminal-pane__line--indent {
@@ -35,14 +40,58 @@
   gap: 0.4rem;
 }
 
-.terminal-pane__cursor {
-  width: 8px;
-  height: 14px;
-  background: #4ade80;
-  animation: blink 1s step-end infinite;
+.terminal-pane__prompt {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.5rem;
+  align-items: center;
 }
 
-@keyframes blink {
+.terminal-pane__prompt-label {
+  color: #4ade80;
+}
+
+.terminal-pane__input-wrap {
+  position: relative;
+  flex: 1;
+}
+
+.terminal-pane__input {
+  background: transparent;
+  border: none;
+  color: #e2e8f0;
+  font-family: "Space Mono", monospace;
+  font-size: 0.85rem;
+  outline: none;
+  padding: 0;
+  width: 100%;
+  caret-color: transparent;
+}
+
+.terminal-pane__cursor {
+  width: 8px;
+  height: 18px;
+  background: #4ade80;
+  opacity: 0;
+  position: absolute;
+  left: var(--cursor-offset, 0ch);
+  top: 2px;
+  pointer-events: none;
+  border: 1px solid transparent;
+}
+
+.terminal-pane__cursor--active {
+  opacity: 1;
+  animation: terminal-blink 1s step-end infinite;
+}
+
+.terminal-pane__cursor:not(.terminal-pane__cursor--active) {
+  opacity: 1;
+  background: transparent;
+  border-color: rgba(74, 222, 128, 0.7);
+}
+
+@keyframes terminal-blink {
   50% {
     opacity: 0;
   }

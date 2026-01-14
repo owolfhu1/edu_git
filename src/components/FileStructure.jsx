@@ -72,8 +72,12 @@ function FileStructure() {
         return
       }
     } else {
-      const created = createFile({ parentId: createState.parentId, name })
-      if (!created) {
+      const created = createFile({
+        parentId: createState.parentId,
+        name,
+        autoOpen: true,
+      })
+      if (!created?.id) {
         setCreateState((prev) => ({
           ...prev,
           error: 'A file or folder with this name already exists.',

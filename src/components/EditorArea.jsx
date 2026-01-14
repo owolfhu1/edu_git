@@ -1,4 +1,4 @@
-import { useContext, useMemo, useRef } from 'react'
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import './EditorArea.css'
 import { FileSystemContext } from '../store/FileSystemContext'
 
@@ -6,32 +6,77 @@ function EditorArea() {
   const { openFiles, selectedFile, selectedFileId, selectFile, closeFile, updateFileContent } =
     useContext(FileSystemContext)
   const gutterRef = useRef(null)
-  const textareaRef = useRef(null)
+  const editorRef = useRef(null)
+  const measureRef = useRef(null)
+  const [lineMeta, setLineMeta] = useState({ heights: [1], lineHeight: 24 })
 
-  const lineCount = useMemo(() => {
-    if (!selectedFile?.content) {
-      return 1
+  const ensureTrailingBreak = () => {
+    if (editorRef.current && !editorRef.current.querySelector('br')) {
+      editorRef.current.appendChild(document.createElement('br'))
     }
-    return selectedFile.content.split('\n').length
-  }, [selectedFile])
-
-  const lineNumbers = useMemo(
-    () => Array.from({ length: lineCount }, (_, index) => index + 1),
-    [lineCount]
-  )
+  }
 
   const handleChange = (event) => {
     if (!selectedFile) {
       return
     }
-    updateFileContent(selectedFile.id, event.target.value)
+    const rawText = (event.currentTarget.textContent || '').replace(/\u00a0/g, ' ')
+    updateFileContent(selectedFile.id, rawText)
+    requestAnimationFrame(updateLineMetrics)
   }
 
-  const handleScroll = (event) => {
-    if (gutterRef.current) {
-      gutterRef.current.scrollTop = event.target.scrollTop
+  useEffect(() => {
+    if (!editorRef.current) {
+      return
     }
-  }
+    const currentText = editorRef.current.textContent || ''
+    if (selectedFile && currentText !== selectedFile.content) {
+      editorRef.current.textContent = selectedFile.content
+    }
+    if (editorRef.current && !editorRef.current.querySelector('br')) {
+      editorRef.current.appendChild(document.createElement('br'))
+    }
+  }, [selectedFile])
+
+  const updateLineMetrics = useCallback(() => {
+    if (!editorRef.current || !measureRef.current) {
+      return
+    }
+    const computed = window.getComputedStyle(editorRef.current)
+    const lineHeight = Number.parseFloat(computed.lineHeight || '0') || 1
+    const content = selectedFile?.content || ''
+    const logicalLines = content.split('\n')
+    measureRef.current.style.width = `${editorRef.current.clientWidth}px`
+    measureRef.current.style.fontFamily = computed.fontFamily
+    measureRef.current.style.fontSize = computed.fontSize
+    measureRef.current.style.lineHeight = computed.lineHeight
+    const heights = logicalLines.map((line) => {
+      measureRef.current.textContent = line.length === 0 ? ' ' : line
+      const height = measureRef.current.getBoundingClientRect().height
+      const rows = Math.max(1, Math.round(height / lineHeight))
+      return rows
+    })
+    setLineMeta({ heights, lineHeight })
+  }, [selectedFile])
+
+  useEffect(() => {
+    if (!editorRef.current) {
+      return
+    }
+    updateLineMetrics()
+    const resizeObserver = new ResizeObserver(updateLineMetrics)
+    resizeObserver.observe(editorRef.current)
+    window.addEventListener('resize', updateLineMetrics)
+    return () => {
+      resizeObserver.disconnect()
+      window.removeEventListener('resize', updateLineMetrics)
+    }
+  }, [updateLineMetrics])
+
+  const lineNumbers = useMemo(
+    () => lineMeta.heights.map((rows, index) => ({ line: index + 1, rows })),
+    [lineMeta.heights]
+  )
 
   return (
     <div className="editor-area">
@@ -81,20 +126,38 @@ function EditorArea() {
         {selectedFile ? (
           <div className="editor-area__editor">
             <div className="editor-area__gutter" aria-hidden="true" ref={gutterRef}>
-              {lineNumbers.map((line) => (
-                <div key={line} className="editor-area__gutter-line">
+              {lineNumbers.map(({ line, rows }) => (
+                <div
+                  key={line}
+                  className="editor-area__gutter-line"
+                  style={{ height: `${rows * lineMeta.lineHeight}px` }}
+                >
                   {line}
                 </div>
               ))}
             </div>
-            <textarea
+            <div
               className="editor-area__textarea"
+              role="textbox"
+              aria-multiline="true"
+              contentEditable="plaintext-only"
+              suppressContentEditableWarning
               spellCheck="false"
-              value={selectedFile.content}
-              onChange={handleChange}
-              onScroll={handleScroll}
-              ref={textareaRef}
+              onInput={(event) => {
+                handleChange(event)
+                ensureTrailingBreak()
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  if (editorRef.current) {
+                    const trailingBreak = document.createElement('br')
+                    editorRef.current.appendChild(trailingBreak)
+                  }
+                }
+              }}
+              ref={editorRef}
             />
+            <div className="editor-area__measure" ref={measureRef} aria-hidden="true" />
           </div>
         ) : (
           <div className="editor-area__empty">Select a file to start editing.</div>
