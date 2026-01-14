@@ -15,11 +15,38 @@ function EditorArea() {
   const gutterRef = useRef(null)
   const editorRef = useRef(null)
   const measureRef = useRef(null)
+  const lastFilePathRef = useRef(null)
   const [lineMeta, setLineMeta] = useState({ heights: [1], lineHeight: 24 })
 
   const ensureTrailingBreak = () => {
-    if (editorRef.current && !editorRef.current.querySelector('br')) {
-      editorRef.current.appendChild(document.createElement('br'))
+    if (!editorRef.current) {
+      return
+    }
+    const editor = editorRef.current
+    const nodes = Array.from(editor.childNodes)
+    for (let i = nodes.length - 1; i >= 0; i -= 1) {
+      const node = nodes[i]
+      if (node.nodeType === Node.TEXT_NODE && node.textContent === '') {
+        editor.removeChild(node)
+        continue
+      }
+      break
+    }
+    let trailingBreaks = 0
+    for (let i = editor.childNodes.length - 1; i >= 0; i -= 1) {
+      const node = editor.childNodes[i]
+      if (node.nodeName === 'BR') {
+        trailingBreaks += 1
+      } else {
+        break
+      }
+    }
+    while (trailingBreaks > 1) {
+      editor.removeChild(editor.lastChild)
+      trailingBreaks -= 1
+    }
+    if (trailingBreaks === 0) {
+      editor.appendChild(document.createElement('br'))
     }
   }
 
@@ -28,7 +55,9 @@ function EditorArea() {
       return
     }
     const rawText = (event.currentTarget.textContent || '').replace(/\u00a0/g, ' ')
-    updateFileContent(selectedFile.id, rawText)
+    if (rawText !== selectedFile.content) {
+      updateFileContent(selectedFile.id, rawText)
+    }
     requestAnimationFrame(updateLineMetrics)
   }
 
@@ -37,12 +66,16 @@ function EditorArea() {
       return
     }
     const currentText = editorRef.current.textContent || ''
-    if (selectedFile && currentText !== selectedFile.content) {
+    const activePath = selectedFile?.path || null
+    const isFocused = document.activeElement === editorRef.current
+    const isSameFile = lastFilePathRef.current === activePath
+    if (selectedFile && (!isSameFile || !isFocused) && currentText !== selectedFile.content) {
       editorRef.current.textContent = selectedFile.content
     }
     if (editorRef.current && !editorRef.current.querySelector('br')) {
       editorRef.current.appendChild(document.createElement('br'))
     }
+    lastFilePathRef.current = activePath
   }, [selectedFile])
 
   const updateLineMetrics = useCallback(() => {
@@ -161,6 +194,7 @@ function EditorArea() {
                 handleChange(event)
                 ensureTrailingBreak()
               }}
+              onClick={ensureTrailingBreak}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
                   if (editorRef.current) {

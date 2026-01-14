@@ -111,16 +111,36 @@ const clearRoot = async (pfs) => {
 
 
 const removePath = async (pfs, targetPath) => {
-  const stats = await pfs.stat(targetPath)
+  let stats
+  try {
+    stats = await pfs.stat(targetPath)
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      return
+    }
+    throw error
+  }
   if (stats.type === 'dir') {
     const entries = await pfs.readdir(targetPath)
     await Promise.all(
       entries.map((entry) => removePath(pfs, joinPath(targetPath, entry)))
     )
-    await pfs.rmdir(targetPath)
+    try {
+      await pfs.rmdir(targetPath)
+    } catch (error) {
+      if (error?.code !== 'ENOENT') {
+        throw error
+      }
+    }
     return
   }
-  await pfs.unlink(targetPath)
+  try {
+    await pfs.unlink(targetPath)
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      throw error
+    }
+  }
 }
 
 function FileSystemProvider({ children }) {
@@ -383,6 +403,8 @@ function FileSystemProvider({ children }) {
   }
 
   const value = {
+    fs: fsRef.current,
+    gitFs: fsRef.current.promises,
     tree,
     isReady,
     selectedFile,
@@ -402,6 +424,7 @@ function FileSystemProvider({ children }) {
     readTextFile,
     resetInstance,
     mockEnvironment,
+    refreshTree,
   }
 
   return (
