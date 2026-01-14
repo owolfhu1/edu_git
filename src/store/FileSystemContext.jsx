@@ -462,6 +462,24 @@ function FileSystemProvider({ children }) {
         }
       }
     }
+    const copyWorkingTree = async (source, destination) => {
+      const entries = await pfs.readdir(source)
+      for (const entry of entries) {
+        if (entry === '.git' || entry === '.remotes') {
+          continue
+        }
+        const fromPath = joinPath(source, entry)
+        const toPath = joinPath(destination, entry)
+        const stats = await pfs.stat(fromPath)
+        if (stats.type === 'dir') {
+          await ensureRemoteDir(toPath)
+          await copyWorkingTree(fromPath, toPath)
+        } else {
+          const content = await pfs.readFile(fromPath)
+          await pfs.writeFile(toPath, content)
+        }
+      }
+    }
     await ensureRemoteDir('/.remotes')
     await ensureRemoteDir('/.remotes/origin')
     const remotePath = '/.remotes/origin'
@@ -475,6 +493,7 @@ function FileSystemProvider({ children }) {
       await git.init({ fs: fsRef.current, dir: remotePath, gitdir: remoteGitdir, defaultBranch: 'main' })
     }
     await copyDir(gitdir, remoteGitdir)
+    await copyWorkingTree('/', remotePath)
     const localOid = await git.resolveRef({ fs: fsRef.current, dir: '/', gitdir, ref: 'main' })
     await git.writeRef({
       fs: fsRef.current,
@@ -484,6 +503,95 @@ function FileSystemProvider({ children }) {
       value: localOid,
       force: true,
     })
+    await git.branch({
+      fs: fsRef.current,
+      dir: '/',
+      gitdir,
+      ref: 'test_branch',
+    })
+    await git.checkout({
+      fs: fsRef.current,
+      dir: '/',
+      gitdir,
+      ref: 'test_branch',
+    })
+    const readmePath = '/README.txt'
+    const readmeText = await pfs.readFile(readmePath, 'utf8')
+    const testReadme = `${readmeText.trimEnd()}\n\nTest branch notes:\n- Update README.txt with a branch-specific change.\n`
+    await pfs.writeFile(readmePath, testReadme)
+    await git.add({ fs: fsRef.current, dir: '/', gitdir, filepath: 'README.txt' })
+    await git.commit({
+      fs: fsRef.current,
+      dir: '/',
+      gitdir,
+      author: { name: 'Learner', email: 'learner@example.com' },
+      message: 'Update README in test_branch',
+    })
+    await git.branch({
+      fs: fsRef.current,
+      dir: remotePath,
+      gitdir: remoteGitdir,
+      ref: 'collaborator_branch',
+    })
+    await git.checkout({
+      fs: fsRef.current,
+      dir: remotePath,
+      gitdir: remoteGitdir,
+      ref: 'collaborator_branch',
+    })
+    const remoteDocsPath = `${remotePath}/docs/overview.txt`
+    const remoteHelpersPath = `${remotePath}/src/utils/helpers.txt`
+    const remoteDocsText = await pfs.readFile(remoteDocsPath, 'utf8')
+    const remoteHelpersText = await pfs.readFile(remoteHelpersPath, 'utf8')
+    await pfs.writeFile(
+      remoteDocsPath,
+      `${remoteDocsText.trimEnd()}\n\nCollaborator update: clarify the setup flow.\n`
+    )
+    await pfs.writeFile(
+      remoteHelpersPath,
+      `${remoteHelpersText.trimEnd()}\n\naddTestHelpers(name):\n  return "helper:" + name\n`
+    )
+    await git.add({
+      fs: fsRef.current,
+      dir: remotePath,
+      gitdir: remoteGitdir,
+      filepath: 'docs/overview.txt',
+    })
+    await git.add({
+      fs: fsRef.current,
+      dir: remotePath,
+      gitdir: remoteGitdir,
+      filepath: 'src/utils/helpers.txt',
+    })
+    await git.commit({
+      fs: fsRef.current,
+      dir: remotePath,
+      gitdir: remoteGitdir,
+      author: { name: 'Collaborator', email: 'collab@example.com' },
+      message: 'Improve docs and helpers',
+    })
+    await git.checkout({
+      fs: fsRef.current,
+      dir: remotePath,
+      gitdir: remoteGitdir,
+      ref: 'main',
+    })
+    const remoteMetadata = {
+      mergeRequests: [
+        {
+          id: `collab-${Date.now()}`,
+          title: 'Collaborator updates',
+          slug: 'collaborator_updates',
+          status: 'open',
+          base: 'main',
+          compare: 'collaborator_branch',
+        },
+      ],
+    }
+    await pfs.writeFile(
+      `${remotePath}/.edu_git_remote.json`,
+      JSON.stringify(remoteMetadata, null, 2)
+    )
     await refreshTree()
     setSelectedFilePath('/README.txt')
     setOpenFilePaths(['/README.txt'])

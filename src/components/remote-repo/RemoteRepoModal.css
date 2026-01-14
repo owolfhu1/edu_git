@@ -314,6 +314,322 @@
   white-space: pre-wrap;
 }
 
+.remote-repo-modal__compare-bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.remote-repo-modal__spacer {
+  flex: 1;
+}
+
+.remote-repo-modal__compare-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.remote-repo-modal__primary {
+  border: none;
+  border-radius: 999px;
+  padding: 0.45rem 1rem;
+  background: #38bdf8;
+  color: #0b1220;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.remote-repo-modal__primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.remote-repo-modal__mr-menu {
+  margin-bottom: 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(15, 23, 42, 0.6);
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.remote-repo-modal__mr-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+.remote-repo-modal__mr-field input {
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+}
+
+.remote-repo-modal__mr-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.remote-repo-modal__mr-create {
+  border: none;
+  border-radius: 999px;
+  padding: 0.4rem 0.9rem;
+  background: #22c55e;
+  color: #0b1220;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.remote-repo-modal__mr-create:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.remote-repo-modal__diff-card {
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(15, 23, 42, 0.45);
+  padding: 0.9rem 1rem 1rem;
+}
+
+.remote-repo-modal__diff-title {
+  font-family: "Space Mono", monospace;
+  font-size: 0.85rem;
+  color: #cbd5f5;
+  margin-bottom: 0.6rem;
+}
+
+.remote-repo-modal__diff-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.6rem;
+}
+
+.remote-repo-modal__diff-badge {
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.remote-repo-modal__diff-badge--added {
+  background: rgba(34, 197, 94, 0.2);
+  color: #86efac;
+}
+
+.remote-repo-modal__diff-badge--modified {
+  background: rgba(59, 130, 246, 0.2);
+  color: #bfdbfe;
+}
+
+.remote-repo-modal__diff-badge--deleted {
+  background: rgba(248, 113, 113, 0.2);
+  color: #fecaca;
+}
+
+.remote-repo-modal__diff-body {
+  margin: 0;
+  padding: 0.75rem;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  color: #e2e8f0;
+  font-family: "Space Mono", monospace;
+  font-size: 0.85rem;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.remote-repo-modal__diff-line--add {
+  color: #4ade80;
+}
+
+.remote-repo-modal__diff-line--del {
+  color: #f87171;
+}
+
+.remote-repo-modal__diff-line--ctx {
+  color: #e2e8f0;
+}
+
+.remote-repo-modal__mr-summary {
+  font-size: 0.9rem;
+  color: #94a3b8;
+  margin-bottom: 1.2rem;
+}
+
+.remote-repo-modal__mr-section {
+  margin-bottom: 1.5rem;
+}
+
+.remote-repo-modal__mr-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: -0.2rem;
+}
+
+.remote-repo-modal__mr-title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.remote-repo-modal__mr-chip {
+  background: rgba(34, 197, 94, 0.2);
+  color: #86efac;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  position: relative;
+  top: -1px;
+}
+
+.remote-repo-modal__mr-button {
+  border: none;
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.remote-repo-modal__mr-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.remote-repo-modal__mr-button--merge {
+  background: #22c55e;
+  color: #0b1220;
+}
+
+.remote-repo-modal__mr-button--close {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fecaca;
+}
+
+.remote-repo-modal__mr-confirm {
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(15, 23, 42, 0.6);
+  padding: 0.9rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.remote-repo-modal__mr-confirm-title {
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.remote-repo-modal__mr-confirm-text {
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+
+.remote-repo-modal__mr-confirm-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #cbd5f5;
+  font-size: 0.9rem;
+}
+
+.remote-repo-modal__mr-confirm-toggle input {
+  accent-color: #32c96b;
+}
+
+.remote-repo-modal__mr-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.remote-repo-modal__mr-confirm-spacer {
+  flex: 1;
+}
+
+.remote-repo-modal__mr-confirm-cancel {
+  border: none;
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+  background: rgba(148, 163, 184, 0.2);
+  color: #e2e8f0;
+  cursor: pointer;
+}
+
+.remote-repo-modal__mr-confirm-apply {
+  border: none;
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.remote-repo-modal__mr-confirm-apply--merge {
+  background: #22c55e;
+  color: #0b1220;
+}
+
+.remote-repo-modal__mr-confirm-apply--close {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fecaca;
+}
+
+.remote-repo-modal__mr-table {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.remote-repo-modal__mr-row {
+  display: grid;
+  grid-template-columns: 2fr 2fr 1fr;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.6rem 0.9rem;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  background: rgba(15, 23, 42, 0.45);
+  color: #e2e8f0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.remote-repo-modal__mr-row--header {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+  cursor: default;
+  background: transparent;
+  border: none;
+  padding: 0.2rem 0.2rem 0.4rem;
+}
+
+.remote-repo-modal__mr-status {
+  text-transform: capitalize;
+  color: #86efac;
+  font-weight: 600;
+}
+
 .remote-repo-modal__file-empty {
   flex: 1;
   border-radius: 16px;

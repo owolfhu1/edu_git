@@ -1,7 +1,8 @@
-import { useContext, useEffect, useMemo, useState } from 'react'
+import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 import git from 'isomorphic-git'
 import './RemoteRepoModal.css'
 import { FileSystemContext } from '../../store/FileSystemContext'
+import { lcsDiff } from '../../git/diff'
 
 const BASE_URL = 'https://remote.mock/edu-git'
 const REMOTE_NAME = 'origin'
@@ -38,6 +39,9 @@ const parseFilePath = (path, branches) => {
   if (!path || !path.startsWith('/')) {
     return null
   }
+  if (path.startsWith('/mr/') || path.startsWith('/merge-requests')) {
+    return null
+  }
   if (!branches || branches.length === 0) {
     return null
   }
@@ -56,10 +60,26 @@ const parseFilePath = (path, branches) => {
   return { branch: head, filePath }
 }
 
+const slugifyTitle = (title) =>
+  title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+
+const parseMrPath = (path) => {
+  if (!path.startsWith('/mr/')) {
+    return null
+  }
+  const slug = path.replace(/^\/mr\//, '').trim()
+  return slug ? decodeURIComponent(slug) : null
+}
+
 const PAGES = [
   { path: '/', label: 'Overview' },
   { path: '/branches', label: 'Branches' },
   { path: '/commits', label: 'Commits' },
+  { path: '/compare', label: 'Compare' },
+  { path: '/merge-requests', label: 'Merge Requests' },
 ]
 
 const buildRemoteTree = async (fs, dir, gitdir, ref) => {
@@ -100,6 +120,66 @@ const buildRemoteTree = async (fs, dir, gitdir, ref) => {
   return walk(rootTree, '')
 }
 
+const buildBlobIndex = async (fs, dir, gitdir, ref) => {
+  const commitOid = await git.resolveRef({ fs, dir, gitdir, ref })
+  const { commit } = await git.readCommit({ fs, dir, gitdir, oid: commitOid })
+  const rootTree = await git.readTree({ fs, dir, gitdir, oid: commit.tree })
+  const index = new Map()
+
+  const walk = async (tree, prefix) => {
+    for (const entry of tree.tree) {
+      const entryPath = prefix ? `${prefix}/${entry.path}` : entry.path
+      if (entry.type === 'blob') {
+        index.set(entryPath, entry.oid)
+      } else if (entry.type === 'tree') {
+        const subtree = await git.readTree({ fs, dir, gitdir, oid: entry.oid })
+        await walk(subtree, entryPath)
+      }
+    }
+  }
+
+  await walk(rootTree, '')
+  return index
+}
+
+const readBlobByOid = async (fs, dir, gitdir, oid) => {
+  if (!oid) {
+    return ''
+  }
+  const { blob } = await git.readBlob({ fs, dir, gitdir, oid })
+  return new TextDecoder().decode(blob)
+}
+
+const computeCompareData = async (fs, dir, gitdir, baseRef, compareRef) => {
+  const baseIndex = await buildBlobIndex(fs, dir, gitdir, baseRef)
+  const targetIndex = await buildBlobIndex(fs, dir, gitdir, compareRef)
+  const paths = new Set([...baseIndex.keys(), ...targetIndex.keys()])
+  const diffs = []
+  for (const path of paths) {
+    const baseOid = baseIndex.get(path) || null
+    const targetOid = targetIndex.get(path) || null
+    if (baseOid === targetOid) {
+      continue
+    }
+    const status = !baseOid ? 'added' : !targetOid ? 'deleted' : 'modified'
+    const baseText = await readBlobByOid(fs, dir, gitdir, baseOid)
+    const targetText = await readBlobByOid(fs, dir, gitdir, targetOid)
+    const diffLines = lcsDiff(baseText, targetText, path)
+    diffs.push({
+      path,
+      lines: diffLines.slice(3),
+      status,
+    })
+  }
+  const compareCommitsList = await git.log({ fs, dir, gitdir, ref: compareRef })
+  const baseCommitsList = await git.log({ fs, dir, gitdir, ref: baseRef })
+  const baseOids = new Set(baseCommitsList.map((commit) => commit.oid))
+  const uniqueCommits = compareCommitsList.filter(
+    (commit) => !baseOids.has(commit.oid)
+  )
+  return { diffs, commits: uniqueCommits }
+}
+
 function RemoteRepoModal({
   isOpen,
   currentPath,
@@ -114,6 +194,7 @@ function RemoteRepoModal({
 }) {
   const { fs } = useContext(FileSystemContext)
   const pfs = fs.promises
+  const seededMergeRequestsRef = useRef(false)
   const [address, setAddress] = useState(`${BASE_URL}${currentPath}`)
   const [remoteState, setRemoteState] = useState({
     connected: false,
@@ -126,6 +207,27 @@ function RemoteRepoModal({
   const [expandedFolders, setExpandedFolders] = useState(() => new Set())
   const [filePreview, setFilePreview] = useState(null)
   const [fileError, setFileError] = useState(null)
+  const [compareBase, setCompareBase] = useState(null)
+  const [compareTarget, setCompareTarget] = useState(null)
+  const [compareDiffs, setCompareDiffs] = useState([])
+  const [compareCommits, setCompareCommits] = useState([])
+  const [compareLoading, setCompareLoading] = useState(false)
+  const [compareError, setCompareError] = useState(null)
+  const [mergeRequests, setMergeRequests] = useState([])
+  const [mrStatusFilter, setMrStatusFilter] = useState('open')
+  const [mrDetail, setMrDetail] = useState({
+    commits: [],
+    diffs: [],
+    loading: false,
+    error: null,
+    canMerge: false,
+    baseOid: null,
+    compareOid: null,
+  })
+  const [mrAction, setMrAction] = useState(null)
+  const [deleteBranchOnMerge, setDeleteBranchOnMerge] = useState(false)
+  const [mrMenuOpen, setMrMenuOpen] = useState(false)
+  const [mrTitle, setMrTitle] = useState('')
 
   useEffect(() => {
     setAddress(`${BASE_URL}${currentPath}`)
@@ -175,6 +277,14 @@ function RemoteRepoModal({
             defaultBranch,
           })
           setSelectedBranch((prev) => prev || defaultBranch)
+          setCompareBase((prev) => prev || defaultBranch)
+          setCompareTarget((prev) => {
+            if (prev) {
+              return prev
+            }
+            const fallback = branches.find((branch) => branch !== defaultBranch) || defaultBranch
+            return fallback
+          })
         }
       } catch (error) {
         if (!cancelled) {
@@ -187,6 +297,77 @@ function RemoteRepoModal({
       cancelled = true
     }
   }, [fs, isOpen, pfs, refreshKey])
+
+  useEffect(() => {
+    let cancelled = false
+    const loadSeedMergeRequests = async () => {
+      if (!isOpen || !remoteState.connected || seededMergeRequestsRef.current) {
+        return
+      }
+      const metadataPath = `${REMOTE_PATH}/.edu_git_remote.json`
+      try {
+        const content = await pfs.readFile(metadataPath, 'utf8')
+        if (!content) {
+          return
+        }
+        const data = JSON.parse(content)
+        if (!data?.mergeRequests || data.mergeRequests.length === 0) {
+          return
+        }
+        if (cancelled) {
+          return
+        }
+        seededMergeRequestsRef.current = true
+        setMergeRequests((prev) => {
+          if (prev.length > 0) {
+            return prev
+          }
+          return data.mergeRequests.map((mr) => ({
+            id: mr.id || `${mr.slug || mr.title}-${Date.now()}`,
+            title: mr.title || 'Merge Request',
+            slug: mr.slug || 'merge_request',
+            status: mr.status || 'open',
+            base: mr.base || 'main',
+            compare: mr.compare || 'main',
+          }))
+        })
+      } catch (error) {
+        if (!cancelled) {
+          seededMergeRequestsRef.current = true
+        }
+      }
+    }
+    loadSeedMergeRequests()
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, pfs, remoteState.connected])
+
+  useEffect(() => {
+    if (!mrMenuOpen) {
+      return undefined
+    }
+    const handleOutside = (event) => {
+      if (!event.target.closest('.remote-repo-modal__mr-menu')) {
+        setMrMenuOpen(false)
+      }
+    }
+    window.addEventListener('mousedown', handleOutside)
+    return () => window.removeEventListener('mousedown', handleOutside)
+  }, [mrMenuOpen])
+
+  useEffect(() => {
+    if (!mrAction) {
+      return undefined
+    }
+    const handleOutside = (event) => {
+      if (!event.target.closest('.remote-repo-modal__mr-confirm')) {
+        setMrAction(null)
+      }
+    }
+    window.addEventListener('mousedown', handleOutside)
+    return () => window.removeEventListener('mousedown', handleOutside)
+  }, [mrAction])
 
   useEffect(() => {
     let cancelled = false
@@ -225,6 +406,119 @@ function RemoteRepoModal({
     () => parseFilePath(currentPath, remoteState.branches),
     [currentPath, remoteState.branches]
   )
+  const mrRoute = useMemo(() => parseMrPath(currentPath), [currentPath])
+  const activeMr = useMemo(
+    () => mergeRequests.find((mr) => mr.slug === mrRoute) || null,
+    [mergeRequests, mrRoute]
+  )
+  const hasOpenCompareMr = useMemo(
+    () =>
+      mergeRequests.some(
+        (mr) =>
+          mr.status === 'open' &&
+          mr.base === compareBase &&
+          mr.compare === compareTarget
+      ),
+    [compareBase, compareTarget, mergeRequests]
+  )
+
+  useEffect(() => {
+    let cancelled = false
+    const loadMrDetail = async () => {
+      if (!isOpen || !mrRoute || !activeMr) {
+        if (!cancelled) {
+          setMrDetail({
+            commits: [],
+            diffs: [],
+            loading: false,
+            error: null,
+            canMerge: false,
+            baseOid: null,
+            compareOid: null,
+          })
+        }
+        return
+      }
+      const gitdir = `${REMOTE_PATH}/.git`
+      if (
+        activeMr.commits &&
+        activeMr.diffs &&
+        activeMr.canMerge !== undefined &&
+        activeMr.baseOid &&
+        activeMr.compareOid
+      ) {
+        if (!cancelled) {
+          setMrDetail({
+            commits: activeMr.commits,
+            diffs: activeMr.diffs,
+            loading: false,
+            error: null,
+            canMerge: activeMr.status === 'open' && activeMr.canMerge,
+            baseOid: activeMr.baseOid || null,
+            compareOid: activeMr.compareOid || null,
+          })
+        }
+        return
+      }
+      setMrDetail((prev) => ({ ...prev, loading: true, error: null }))
+      try {
+        const { diffs, commits } = await computeCompareData(
+          fs,
+          REMOTE_PATH,
+          gitdir,
+          activeMr.base,
+          activeMr.compare
+        )
+        const baseOid = await git.resolveRef({
+          fs,
+          dir: REMOTE_PATH,
+          gitdir,
+          ref: activeMr.base,
+        })
+        const compareOid = await git.resolveRef({
+          fs,
+          dir: REMOTE_PATH,
+          gitdir,
+          ref: activeMr.compare,
+        })
+        const canMerge = Boolean(compareOid && baseOid && compareOid !== baseOid)
+        if (!cancelled) {
+          setMrDetail({
+            diffs,
+            commits,
+            loading: false,
+            error: null,
+            canMerge,
+            baseOid,
+            compareOid,
+          })
+          setMergeRequests((prev) =>
+            prev.map((mr) =>
+              mr.id === activeMr.id
+                ? { ...mr, diffs, commits, canMerge, baseOid, compareOid }
+                : mr
+            )
+          )
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setMrDetail({
+            commits: [],
+            diffs: [],
+            loading: false,
+            error: 'Unable to load MR.',
+            canMerge: false,
+            baseOid: null,
+            compareOid: null,
+          })
+        }
+      }
+    }
+    loadMrDetail()
+    return () => {
+      cancelled = true
+    }
+  }, [activeMr, fs, isOpen, mrRoute])
 
   useEffect(() => {
     let cancelled = false
@@ -302,6 +596,53 @@ function RemoteRepoModal({
       cancelled = true
     }
   }, [fileRoute, fs, isOpen])
+
+  useEffect(() => {
+    let cancelled = false
+    const loadCompare = async () => {
+      if (
+        !isOpen ||
+        !remoteState.connected ||
+        !compareBase ||
+        !compareTarget ||
+        compareBase === compareTarget
+      ) {
+        if (!cancelled) {
+          setCompareDiffs([])
+        }
+        return
+      }
+      setCompareLoading(true)
+      setCompareError(null)
+      const gitdir = `${REMOTE_PATH}/.git`
+      try {
+        const { diffs, commits } = await computeCompareData(
+          fs,
+          REMOTE_PATH,
+          gitdir,
+          compareBase,
+          compareTarget
+        )
+        if (!cancelled) {
+          setCompareDiffs(diffs)
+          setCompareCommits(commits)
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setCompareError('Unable to compare branches.')
+          setCompareCommits([])
+        }
+      } finally {
+        if (!cancelled) {
+          setCompareLoading(false)
+        }
+      }
+    }
+    loadCompare()
+    return () => {
+      cancelled = true
+    }
+  }, [compareBase, compareTarget, fs, isOpen, remoteState.connected])
 
   useEffect(() => {
     let cancelled = false
@@ -463,9 +804,18 @@ function RemoteRepoModal({
               </div>
             </div>
             <nav className="remote-repo-modal__menu">
-              {PAGES.filter((entry) =>
-                remoteState.connected ? true : entry.path === '/'
-              ).map((entry) => (
+              {PAGES.filter((entry) => {
+                if (!remoteState.connected) {
+                  return entry.path === '/'
+                }
+                if (entry.path === '/merge-requests') {
+                  return mergeRequests.length > 0
+                }
+                if (entry.path === '/compare') {
+                  return remoteState.branches.length > 1
+                }
+                return true
+              }).map((entry) => (
                 <button
                   key={entry.path}
                   type="button"
@@ -613,6 +963,447 @@ function RemoteRepoModal({
                 )}
               </>
             )}
+            {page?.path === '/compare' && !fileRoute && (
+              <>
+                <div className="remote-repo-modal__header">
+                  <h2>Compare</h2>
+                </div>
+                {remoteState.branches.length < 2 ? (
+                  <div className="remote-repo-modal__empty">
+                    Create another branch to compare.
+                  </div>
+                ) : (
+                  <>
+                    <div className="remote-repo-modal__compare-bar">
+                      <label className="remote-repo-modal__select">
+                        <span>Base</span>
+                        <select
+                          value={compareBase || ''}
+                          onChange={(event) => setCompareBase(event.target.value)}
+                        >
+                          {remoteState.branches.map((branch) => (
+                            <option key={branch} value={branch}>
+                              {branch}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="remote-repo-modal__select">
+                        <span>Compare</span>
+                        <select
+                          value={compareTarget || ''}
+                          onChange={(event) => setCompareTarget(event.target.value)}
+                        >
+                          {remoteState.branches.map((branch) => (
+                            <option key={branch} value={branch}>
+                              {branch}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="remote-repo-modal__spacer" aria-hidden="true" />
+                      <button
+                        type="button"
+                        className="remote-repo-modal__primary"
+                        disabled={
+                          compareBase === compareTarget ||
+                          hasOpenCompareMr ||
+                          compareLoading ||
+                          compareDiffs.length === 0
+                        }
+                        title={
+                          hasOpenCompareMr
+                            ? 'You already have a request for this change.'
+                            : compareDiffs.length === 0
+                              ? 'There are no changes to request.'
+                              : ''
+                        }
+                        onClick={() => setMrMenuOpen((prev) => !prev)}
+                      >
+                        Create Merge Request {compareTarget} → {compareBase}
+                      </button>
+                    </div>
+                    {mrMenuOpen ? (
+                      <div className="remote-repo-modal__mr-menu">
+                        <label className="remote-repo-modal__mr-field">
+                          <span>Merge Request title</span>
+                          <input
+                            type="text"
+                            value={mrTitle}
+                            onChange={(event) => setMrTitle(event.target.value)}
+                            placeholder="Add a title"
+                          />
+                        </label>
+                        <div className="remote-repo-modal__mr-actions">
+                          <button
+                            type="button"
+                            className="remote-repo-modal__mr-create"
+                            disabled={!mrTitle.trim()}
+                            onClick={() => {
+                              const title = mrTitle.trim()
+                              if (!title) {
+                                return
+                              }
+                              const slug = slugifyTitle(title)
+                              setMergeRequests((prev) => [
+                                {
+                                  id: `${slug}-${Date.now()}`,
+                                  title,
+                                  slug,
+                                  status: 'open',
+                                  base: compareBase,
+                                  compare: compareTarget,
+                                  commits: compareCommits,
+                                  diffs: compareDiffs,
+                                },
+                                ...prev,
+                              ])
+                              setMrTitle('')
+                              setMrMenuOpen(false)
+                              onNavigate(`/mr/${slug}`)
+                            }}
+                          >
+                            Create
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                    {compareBase === compareTarget ? (
+                      <div className="remote-repo-modal__empty">
+                        Select two different branches to compare.
+                      </div>
+                    ) : compareLoading ? (
+                      <div className="remote-repo-modal__empty">Comparing branches...</div>
+                    ) : compareError ? (
+                      <div className="remote-repo-modal__empty">{compareError}</div>
+                    ) : compareDiffs.length === 0 ? (
+                      <div className="remote-repo-modal__empty">
+                        No differences found between these branches.
+                      </div>
+                    ) : (
+                      <div className="remote-repo-modal__compare-list">
+                        {compareDiffs.map((diff) => (
+                          <div key={diff.path} className="remote-repo-modal__diff-card">
+                            <div className="remote-repo-modal__diff-header">
+                              <div className="remote-repo-modal__diff-title">{diff.path}</div>
+                              <span
+                                className={`remote-repo-modal__diff-badge remote-repo-modal__diff-badge--${diff.status}`}
+                              >
+                                {diff.status}
+                              </span>
+                            </div>
+                            <pre className="remote-repo-modal__diff-body">
+                              {diff.lines.map((line, index) => (
+                                <span
+                                  key={`${diff.path}-${index}`}
+                                  className={
+                                    line.startsWith('+ ')
+                                      ? 'remote-repo-modal__diff-line--add'
+                                      : line.startsWith('- ')
+                                        ? 'remote-repo-modal__diff-line--del'
+                                        : 'remote-repo-modal__diff-line--ctx'
+                                  }
+                                >
+                                  {line}
+                                  {'\n'}
+                                </span>
+                              ))}
+                            </pre>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </>
+            )}
+            {page?.path === '/merge-requests' && !fileRoute && !mrRoute && (
+              <>
+                <div className="remote-repo-modal__header">
+                  <h2>Merge Requests</h2>
+                  <label className="remote-repo-modal__select">
+                    <span>Status</span>
+                    <select
+                      value={mrStatusFilter}
+                      onChange={(event) => setMrStatusFilter(event.target.value)}
+                    >
+                      <option value="open">Open</option>
+                      <option value="closed">Closed</option>
+                      <option value="merged">Merged</option>
+                    </select>
+                  </label>
+                </div>
+                {mergeRequests.filter((mr) => mr.status === mrStatusFilter).length === 0 ? (
+                  <div className="remote-repo-modal__empty">No merge requests.</div>
+                ) : (
+                  <div className="remote-repo-modal__mr-table">
+                    <div className="remote-repo-modal__mr-row remote-repo-modal__mr-row--header">
+                      <span>Title</span>
+                      <span>Branches</span>
+                      <span>Status</span>
+                    </div>
+                    {mergeRequests
+                      .filter((mr) => mr.status === mrStatusFilter)
+                      .map((mr) => (
+                        <button
+                          type="button"
+                          key={mr.id}
+                          className="remote-repo-modal__mr-row"
+                          onClick={() => onNavigate(`/mr/${mr.slug}`)}
+                        >
+                          <span>{mr.title}</span>
+                          <span>
+                            {mr.compare} → {mr.base}
+                          </span>
+                          <span className="remote-repo-modal__mr-status">{mr.status}</span>
+                        </button>
+                      ))}
+                  </div>
+                )}
+              </>
+            )}
+            {mrRoute && activeMr && !fileRoute && (
+              <>
+                <div className="remote-repo-modal__header">
+                  <div className="remote-repo-modal__mr-title">
+                    <h2>{activeMr.title}</h2>
+                    {activeMr.status === 'merged' ? (
+                      <span className="remote-repo-modal__mr-chip">Merged</span>
+                    ) : null}
+                  </div>
+                  {activeMr.status === 'open' ? (
+                    <div className="remote-repo-modal__mr-actions">
+                      <button
+                        type="button"
+                        className="remote-repo-modal__mr-button remote-repo-modal__mr-button--merge"
+                        disabled={!mrDetail.canMerge}
+                        title={
+                          !mrDetail.canMerge ? 'This merge request cannot be merged yet.' : ''
+                        }
+                        onClick={() => setMrAction('merge')}
+                      >
+                        Merge
+                      </button>
+                      <button
+                        type="button"
+                        className="remote-repo-modal__mr-button remote-repo-modal__mr-button--close"
+                        onClick={() => setMrAction('close')}
+                      >
+                        Close
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+                {mrAction ? (
+                  <div className="remote-repo-modal__mr-confirm">
+                    <div className="remote-repo-modal__mr-confirm-title">
+                      {mrAction === 'merge' ? 'Merge this request?' : 'Close this request?'}
+                    </div>
+                    <div className="remote-repo-modal__mr-confirm-text">
+                      {mrAction === 'merge'
+                        ? `This will update ${activeMr.base} to ${activeMr.compare} and mark the request as merged.`
+                        : 'This will close the merge request without merging changes.'}
+                    </div>
+                    <div className="remote-repo-modal__mr-confirm-actions">
+                      {mrAction === 'merge' ? (
+                        <label className="remote-repo-modal__mr-confirm-toggle">
+                          <input
+                            type="checkbox"
+                            checked={deleteBranchOnMerge}
+                            onChange={(event) => setDeleteBranchOnMerge(event.target.checked)}
+                          />
+                          Delete branch {activeMr.compare} on merge
+                        </label>
+                      ) : null}
+                      <div className="remote-repo-modal__mr-confirm-spacer" aria-hidden="true" />
+                      <button
+                        type="button"
+                        className="remote-repo-modal__mr-confirm-cancel"
+                        onClick={() => {
+                          setMrAction(null)
+                          setDeleteBranchOnMerge(false)
+                        }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        className={`remote-repo-modal__mr-confirm-apply ${
+                          mrAction === 'merge'
+                            ? 'remote-repo-modal__mr-confirm-apply--merge'
+                            : 'remote-repo-modal__mr-confirm-apply--close'
+                        }`}
+                      onClick={async () => {
+                        if (mrAction === 'merge') {
+                          if (!mrDetail.canMerge || !mrDetail.compareOid) {
+                            setMrAction(null)
+                            setDeleteBranchOnMerge(false)
+                            return
+                          }
+                          const gitdir = `${REMOTE_PATH}/.git`
+                          await git.writeRef({
+                            fs,
+                            dir: REMOTE_PATH,
+                            gitdir,
+                            ref: `refs/heads/${activeMr.base}`,
+                            value: mrDetail.compareOid,
+                            force: true,
+                          })
+                          if (
+                            deleteBranchOnMerge &&
+                            activeMr.compare &&
+                            activeMr.compare !== activeMr.base
+                          ) {
+                            try {
+                              await git.deleteRef({
+                                fs,
+                                dir: REMOTE_PATH,
+                                gitdir,
+                                ref: `refs/heads/${activeMr.compare}`,
+                              })
+                              setRemoteState((prev) => {
+                                const updatedBranches = prev.branches.filter(
+                                  (branch) => branch !== activeMr.compare
+                                )
+                                const nextDefault =
+                                  prev.defaultBranch && updatedBranches.includes(prev.defaultBranch)
+                                    ? prev.defaultBranch
+                                    : updatedBranches[0] || null
+                                return {
+                                  ...prev,
+                                  branches: updatedBranches,
+                                  defaultBranch: nextDefault,
+                                }
+                              })
+                              setSelectedBranch((prev) =>
+                                prev === activeMr.compare ? activeMr.base : prev
+                              )
+                              setCompareBase((prev) =>
+                                prev === activeMr.compare ? activeMr.base : prev
+                              )
+                              setCompareTarget((prev) =>
+                                prev === activeMr.compare ? activeMr.base : prev
+                              )
+                            } catch (error) {
+                              // Ignore delete failures to keep merge flow smooth.
+                            }
+                          }
+                          setMergeRequests((prev) =>
+                            prev.map((mr) =>
+                              mr.id === activeMr.id
+                                ? {
+                                    ...mr,
+                                    status: 'merged',
+                                    commits: mrDetail.commits,
+                                    diffs: mrDetail.diffs,
+                                  }
+                                : mr
+                            )
+                          )
+                        } else {
+                          setMergeRequests((prev) =>
+                            prev.map((mr) =>
+                              mr.id === activeMr.id
+                                ? {
+                                    ...mr,
+                                    status: 'closed',
+                                    commits: mrDetail.commits,
+                                    diffs: mrDetail.diffs,
+                                  }
+                                : mr
+                            )
+                          )
+                        }
+                          setMrAction(null)
+                          setDeleteBranchOnMerge(false)
+                        }}
+                      >
+                        Confirm
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+                <div className="remote-repo-modal__mr-summary">
+                  {activeMr.base} ← {activeMr.compare}
+                </div>
+                <div className="remote-repo-modal__mr-section">
+                  <h3>Commits</h3>
+                  {mrDetail.loading ? (
+                    <div className="remote-repo-modal__empty">Loading merge request...</div>
+                  ) : mrDetail.error ? (
+                    <div className="remote-repo-modal__empty">{mrDetail.error}</div>
+                  ) : mrDetail.commits.length === 0 ? (
+                    <div className="remote-repo-modal__empty">No commits found.</div>
+                  ) : (
+                    <div className="remote-repo-modal__list">
+                      {mrDetail.commits.map((commit) => (
+                        <div key={commit.oid} className="remote-repo-modal__list-item">
+                          <div className="remote-repo-modal__commit-title">
+                            {commit.commit.message.split('\n')[0]}
+                          </div>
+                          <div className="remote-repo-modal__commit-meta">
+                            {commit.oid.slice(0, 7)} · {commit.commit.author.name}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="remote-repo-modal__mr-section">
+                  <h3>Diff</h3>
+                  {mrDetail.loading ? (
+                    <div className="remote-repo-modal__empty">Loading merge request...</div>
+                  ) : mrDetail.error ? (
+                    <div className="remote-repo-modal__empty">{mrDetail.error}</div>
+                  ) : mrDetail.diffs.length === 0 ? (
+                    <div className="remote-repo-modal__empty">
+                      No differences found between these branches.
+                    </div>
+                  ) : (
+                    <div className="remote-repo-modal__compare-list">
+                      {mrDetail.diffs.map((diff) => (
+                        <div key={diff.path} className="remote-repo-modal__diff-card">
+                          <div className="remote-repo-modal__diff-header">
+                            <div className="remote-repo-modal__diff-title">{diff.path}</div>
+                            <span
+                              className={`remote-repo-modal__diff-badge remote-repo-modal__diff-badge--${diff.status}`}
+                            >
+                              {diff.status}
+                            </span>
+                          </div>
+                          <pre className="remote-repo-modal__diff-body">
+                            {diff.lines.map((line, index) => (
+                              <span
+                                key={`${diff.path}-${index}`}
+                                className={
+                                  line.startsWith('+ ')
+                                    ? 'remote-repo-modal__diff-line--add'
+                                    : line.startsWith('- ')
+                                      ? 'remote-repo-modal__diff-line--del'
+                                      : 'remote-repo-modal__diff-line--ctx'
+                                }
+                              >
+                                {line}
+                                {'\n'}
+                              </span>
+                            ))}
+                          </pre>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+            {mrRoute && !activeMr && !fileRoute && (
+              <div className="remote-repo-modal__notfound">
+                <div className="remote-repo-modal__notfound-code">404</div>
+                <div className="remote-repo-modal__notfound-title">Merge Request not found</div>
+                <div className="remote-repo-modal__notfound-text">
+                  This merge request does not exist in the current workspace.
+                </div>
+              </div>
+            )}
             {fileRoute && (
               <div className="remote-repo-modal__file-view">
                 <div className="remote-repo-modal__header">
@@ -654,7 +1445,7 @@ function RemoteRepoModal({
                 )}
               </div>
             )}
-            {!page && !fileRoute && (
+            {!page && !fileRoute && !mrRoute && (
               <div className="remote-repo-modal__notfound">
                 <div className="remote-repo-modal__notfound-code">404</div>
                 <div className="remote-repo-modal__notfound-title">Page not found</div>

@@ -8,5 +8,5 @@ Get started:
 
 Workspace Menu (top right):
 - Reset Instance: restore the default file system.
-- Mock Complex Environment: load a full mock project with docs and code files.
+- Mock Full Environment: load a full mock project with docs and code files.
 - Remote Repo UI: open the remote repo overlay to connect your local repo and learn how remotes impact collaboration.

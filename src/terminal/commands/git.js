@@ -118,6 +118,9 @@ const gitCommand = async (args, context) => {
       const untracked = []
 
       statusMatrix.forEach(([filepath, head, workdir, stage]) => {
+        if (filepath.startsWith('.remotes/')) {
+          return
+        }
         const isUntracked = head === 0 && workdir === 2 && stage === 0
         if (isUntracked) {
           untracked.push(filepath)
@@ -270,12 +273,29 @@ const gitCommand = async (args, context) => {
     const { root, gitdir } = repo
     const flag = args[1]
     const name = args[1] && !args[1].startsWith('-') ? args[1] : args[2]
-    if (!name) {
+    const isRemoteOnly = flag === '-r'
+    const isAll = flag === '-a'
+    if (!name || isRemoteOnly || isAll) {
       const branches = await git.listBranches({ fs, dir: root, gitdir })
       const current = await git.currentBranch({ fs, dir: root, gitdir, fullname: false })
-      const lines = branches.map((branch) =>
+      const localLines = branches.map((branch) =>
         branch === current ? `* ${branch}` : `  ${branch}`
       )
+      let remoteLines = []
+      if (isRemoteOnly || isAll) {
+        const remotes = await git.listRemotes({ fs, dir: root, gitdir })
+        const remoteName = remotes[0]?.remote || 'origin'
+        const remoteBranches = await git.listBranches({
+          fs,
+          dir: root,
+          gitdir,
+          remote: remoteName,
+        })
+        remoteLines = remoteBranches.map(
+          (branch) => `  remotes/${remoteName}/${branch}`
+        )
+      }
+      const lines = isRemoteOnly ? remoteLines : localLines.concat(remoteLines)
       appendOutput(lines.length ? lines : [''])
       return
     }

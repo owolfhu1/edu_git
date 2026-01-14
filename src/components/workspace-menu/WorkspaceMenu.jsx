@@ -21,7 +21,7 @@ function WorkspaceMenu() {
   const [remoteIndex, setRemoteIndex] = useState(0)
   const [remoteRefreshKey, setRemoteRefreshKey] = useState(0)
   const menuRef = useRef(null)
-  const { mockEnvironment, resetInstance } = useContext(FileSystemContext)
+  const { mockEnvironment, resetInstance, resetToken } = useContext(FileSystemContext)
 
   useEffect(() => {
     if (!isOpen) {
@@ -35,6 +35,13 @@ function WorkspaceMenu() {
     document.addEventListener('click', handleClick)
     return () => document.removeEventListener('click', handleClick)
   }, [isOpen])
+
+  useEffect(() => {
+    setRemoteOpen(false)
+    setRemoteHistory(['/'])
+    setRemoteIndex(0)
+    setRemoteRefreshKey((prev) => prev + 1)
+  }, [resetToken])
 
   return (
     <div className="floating-menu" ref={menuRef}>
@@ -67,7 +74,7 @@ function WorkspaceMenu() {
               setIsOpen(false)
             }}
           >
-            Mock Complex Environment
+            Mock Full Environment
           </button>
           <button
             type="button"
@@ -82,6 +89,7 @@ function WorkspaceMenu() {
         </div>
       )}
       <RemoteRepoModal
+        key={resetToken}
         isOpen={remoteOpen}
         currentPath={remoteHistory[remoteIndex] || '/'}
         canGoBack={remoteIndex > 0}
