@@ -251,9 +251,23 @@
 }
 
 .remote-repo-modal__tree-icon {
-  width: 18px;
+  width: 20px;
   display: inline-flex;
   justify-content: center;
+}
+
+.remote-repo-modal__icon {
+  width: 20px;
+  height: 20px;
+  color: #93c5fd;
+}
+
+.remote-repo-modal__icon--open {
+  color: #38bdf8;
+}
+
+.remote-repo-modal__icon--file {
+  color: #cbd5f5;
 }
 
 .remote-repo-modal__tree-row--folder {
@@ -469,6 +483,35 @@
   font-size: 0.9rem;
   color: #94a3b8;
   margin-bottom: 1.2rem;
+}
+
+.remote-repo-modal__mr-warning {
+  margin: -0.7rem 0 1.2rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 8px;
+  background: rgba(248, 113, 113, 0.12);
+  color: #fecaca;
+  font-size: 0.9rem;
+}
+
+.remote-repo-modal__mr-warning-title {
+  font-weight: 600;
+}
+
+.remote-repo-modal__mr-help-title {
+  margin-top: 0.6rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.remote-repo-modal__mr-warning pre {
+  margin: 0.5rem 0 0;
+  padding: 0.6rem 0.7rem;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.5);
+  color: #fee2e2;
+  font-size: 0.85rem;
+  white-space: pre-wrap;
 }
 
 .remote-repo-modal__mr-section {

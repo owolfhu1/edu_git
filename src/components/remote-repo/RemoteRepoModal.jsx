@@ -3,10 +3,14 @@ import git from 'isomorphic-git'
 import './RemoteRepoModal.css'
 import { FileSystemContext } from '../../store/FileSystemContext'
 import { lcsDiff } from '../../git/diff'
+import { FileIcon, FolderClosedIcon, FolderOpenIcon } from '../icons/FileIcons'
 
 const BASE_URL = 'https://remote.mock/edu-git'
+const MERGE_AUTHOR = { name: 'Edu Git', email: 'edu@example.com' }
 const REMOTE_NAME = 'origin'
 const REMOTE_PATH = '/.remotes/origin'
+const IGNORED_COMPARE_PREFIXES = ['.remotes/', '.git/']
+const IGNORED_COMPARE_FILES = new Set(['.edu_git_remote.json'])
 
 const normalizePath = (path) => {
   if (!path) {
@@ -65,6 +69,42 @@ const slugifyTitle = (title) =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '')
+
+const getMergeability = async (fs, dir, gitdir, baseRef, compareRef) => {
+  try {
+    const result = await git.merge({
+      fs,
+      dir,
+      gitdir,
+      ours: baseRef,
+      theirs: compareRef,
+      dryRun: true,
+      fastForward: true,
+      fastForwardOnly: false,
+      abortOnConflict: true,
+      author: MERGE_AUTHOR,
+      committer: MERGE_AUTHOR,
+    })
+    if (result?.alreadyMerged) {
+      return { status: 'already-merged', canMerge: false, conflictFiles: [] }
+    }
+    return { status: 'clean', canMerge: true, conflictFiles: [] }
+  } catch (error) {
+    if (error?.code === 'MergeConflictError' || error?.code === 'MergeNotSupportedError') {
+      return {
+        status: 'conflict',
+        canMerge: false,
+        conflictFiles: error?.data?.filepaths || [],
+      }
+    }
+    return {
+      status: 'error',
+      canMerge: false,
+      conflictFiles: [],
+      message: error?.message || 'Unable to determine merge status.',
+    }
+  }
+}
 
 const parseMrPath = (path) => {
   if (!path.startsWith('/mr/')) {
@@ -150,12 +190,33 @@ const readBlobByOid = async (fs, dir, gitdir, oid) => {
   return new TextDecoder().decode(blob)
 }
 
+const shouldIgnoreComparePath = (path) => {
+  if (IGNORED_COMPARE_FILES.has(path)) {
+    return true
+  }
+  return IGNORED_COMPARE_PREFIXES.some((prefix) => path.startsWith(prefix))
+}
+
+const dedupeCommits = (commits) => {
+  const seen = new Set()
+  return commits.filter((commit) => {
+    if (seen.has(commit.oid)) {
+      return false
+    }
+    seen.add(commit.oid)
+    return true
+  })
+}
+
 const computeCompareData = async (fs, dir, gitdir, baseRef, compareRef) => {
   const baseIndex = await buildBlobIndex(fs, dir, gitdir, baseRef)
   const targetIndex = await buildBlobIndex(fs, dir, gitdir, compareRef)
   const paths = new Set([...baseIndex.keys(), ...targetIndex.keys()])
   const diffs = []
   for (const path of paths) {
+    if (shouldIgnoreComparePath(path)) {
+      continue
+    }
     const baseOid = baseIndex.get(path) || null
     const targetOid = targetIndex.get(path) || null
     if (baseOid === targetOid) {
@@ -177,7 +238,7 @@ const computeCompareData = async (fs, dir, gitdir, baseRef, compareRef) => {
   const uniqueCommits = compareCommitsList.filter(
     (commit) => !baseOids.has(commit.oid)
   )
-  return { diffs, commits: uniqueCommits }
+  return { diffs, commits: dedupeCommits(uniqueCommits) }
 }
 
 function RemoteRepoModal({
@@ -215,6 +276,7 @@ function RemoteRepoModal({
   const [compareError, setCompareError] = useState(null)
   const [mergeRequests, setMergeRequests] = useState([])
   const [mrStatusFilter, setMrStatusFilter] = useState('open')
+  const [commitRefreshToken, setCommitRefreshToken] = useState(0)
   const [mrDetail, setMrDetail] = useState({
     commits: [],
     diffs: [],
@@ -223,6 +285,9 @@ function RemoteRepoModal({
     canMerge: false,
     baseOid: null,
     compareOid: null,
+    mergeStatus: null,
+    conflictFiles: [],
+    mergeMessage: null,
   })
   const [mrAction, setMrAction] = useState(null)
   const [deleteBranchOnMerge, setDeleteBranchOnMerge] = useState(false)
@@ -435,40 +500,33 @@ function RemoteRepoModal({
             canMerge: false,
             baseOid: null,
             compareOid: null,
+            mergeStatus: null,
+            conflictFiles: [],
+            mergeMessage: null,
           })
         }
         return
       }
       const gitdir = `${REMOTE_PATH}/.git`
-      if (
-        activeMr.commits &&
-        activeMr.diffs &&
-        activeMr.canMerge !== undefined &&
-        activeMr.baseOid &&
-        activeMr.compareOid
-      ) {
+      if (activeMr.status !== 'open' && activeMr.commits && activeMr.diffs) {
         if (!cancelled) {
           setMrDetail({
             commits: activeMr.commits,
             diffs: activeMr.diffs,
             loading: false,
             error: null,
-            canMerge: activeMr.status === 'open' && activeMr.canMerge,
+            canMerge: false,
             baseOid: activeMr.baseOid || null,
             compareOid: activeMr.compareOid || null,
+            mergeStatus: activeMr.mergeStatus || activeMr.status,
+            conflictFiles: activeMr.conflictFiles || [],
+            mergeMessage: activeMr.mergeMessage || null,
           })
         }
         return
       }
       setMrDetail((prev) => ({ ...prev, loading: true, error: null }))
       try {
-        const { diffs, commits } = await computeCompareData(
-          fs,
-          REMOTE_PATH,
-          gitdir,
-          activeMr.base,
-          activeMr.compare
-        )
         const baseOid = await git.resolveRef({
           fs,
           dir: REMOTE_PATH,
@@ -481,7 +539,47 @@ function RemoteRepoModal({
           gitdir,
           ref: activeMr.compare,
         })
-        const canMerge = Boolean(compareOid && baseOid && compareOid !== baseOid)
+        if (
+          activeMr.commits &&
+          activeMr.diffs &&
+          activeMr.mergeStatus &&
+          activeMr.baseOid === baseOid &&
+          activeMr.compareOid === compareOid
+        ) {
+          if (!cancelled) {
+            setMrDetail({
+              commits: activeMr.commits,
+              diffs: activeMr.diffs,
+              loading: false,
+              error: null,
+              canMerge: activeMr.status === 'open' && activeMr.canMerge,
+              baseOid: activeMr.baseOid || null,
+              compareOid: activeMr.compareOid || null,
+              mergeStatus: activeMr.mergeStatus,
+              conflictFiles: activeMr.conflictFiles || [],
+              mergeMessage: activeMr.mergeMessage || null,
+            })
+          }
+          return
+        }
+        const { diffs, commits } = await computeCompareData(
+          fs,
+          REMOTE_PATH,
+          gitdir,
+          activeMr.base,
+          activeMr.compare
+        )
+        const mergeability = await getMergeability(
+          fs,
+          REMOTE_PATH,
+          gitdir,
+          activeMr.base,
+          activeMr.compare
+        )
+        const canMerge =
+          activeMr.status === 'open' &&
+          Boolean(compareOid && baseOid && compareOid !== baseOid) &&
+          mergeability.canMerge
         if (!cancelled) {
           setMrDetail({
             diffs,
@@ -491,11 +589,24 @@ function RemoteRepoModal({
             canMerge,
             baseOid,
             compareOid,
+            mergeStatus: mergeability.status,
+            conflictFiles: mergeability.conflictFiles || [],
+            mergeMessage: mergeability.message || null,
           })
           setMergeRequests((prev) =>
             prev.map((mr) =>
               mr.id === activeMr.id
-                ? { ...mr, diffs, commits, canMerge, baseOid, compareOid }
+                ? {
+                    ...mr,
+                    diffs,
+                    commits,
+                    canMerge,
+                    baseOid,
+                    compareOid,
+                    mergeStatus: mergeability.status,
+                    conflictFiles: mergeability.conflictFiles || [],
+                    mergeMessage: mergeability.message || null,
+                  }
                 : mr
             )
           )
@@ -510,6 +621,9 @@ function RemoteRepoModal({
             canMerge: false,
             baseOid: null,
             compareOid: null,
+            mergeStatus: 'error',
+            conflictFiles: [],
+            mergeMessage: null,
           })
         }
       }
@@ -659,7 +773,7 @@ function RemoteRepoModal({
           ref: selectedBranch,
         })
         if (!cancelled) {
-          setRemoteState((prev) => ({ ...prev, commits }))
+          setRemoteState((prev) => ({ ...prev, commits: dedupeCommits(commits) }))
         }
       } catch (error) {
         if (!cancelled) {
@@ -671,7 +785,7 @@ function RemoteRepoModal({
     return () => {
       cancelled = true
     }
-  }, [fs, isOpen, remoteState.connected, selectedBranch])
+  }, [fs, isOpen, remoteState.connected, selectedBranch, commitRefreshToken])
 
   const TreeRow = ({ node, depth, expandedFolders, onToggle }) => {
     const isFolder = node.type === 'tree'
@@ -714,7 +828,15 @@ function RemoteRepoModal({
           }}
         >
           <span className="remote-repo-modal__tree-icon" aria-hidden="true">
-            {isFolder ? (isOpen ? '📂' : '📁') : '📄'}
+            {isFolder ? (
+              isOpen ? (
+                <FolderOpenIcon className="remote-repo-modal__icon remote-repo-modal__icon--open" />
+              ) : (
+                <FolderClosedIcon className="remote-repo-modal__icon remote-repo-modal__icon--closed" />
+              )
+            ) : (
+              <FileIcon className="remote-repo-modal__icon remote-repo-modal__icon--file" />
+            )}
           </span>
           <span>{node.name}</span>
         </div>
@@ -1241,14 +1363,36 @@ function RemoteRepoModal({
                             return
                           }
                           const gitdir = `${REMOTE_PATH}/.git`
-                          await git.writeRef({
-                            fs,
-                            dir: REMOTE_PATH,
-                            gitdir,
-                            ref: `refs/heads/${activeMr.base}`,
-                            value: mrDetail.compareOid,
-                            force: true,
-                          })
+                          try {
+                            await git.merge({
+                              fs,
+                              dir: REMOTE_PATH,
+                              gitdir,
+                              ours: activeMr.base,
+                              theirs: activeMr.compare,
+                              fastForward: true,
+                              fastForwardOnly: false,
+                              abortOnConflict: true,
+                              author: MERGE_AUTHOR,
+                              committer: MERGE_AUTHOR,
+                            })
+                          } catch (error) {
+                            const conflict =
+                              error?.code === 'MergeConflictError' ||
+                              error?.code === 'MergeNotSupportedError'
+                            setMrDetail((prev) => ({
+                              ...prev,
+                              canMerge: false,
+                              mergeStatus: conflict ? 'conflict' : 'error',
+                              conflictFiles: conflict ? error?.data?.filepaths || [] : [],
+                              mergeMessage: conflict
+                                ? 'Merge blocked by conflicts.'
+                                : error?.message || 'Unable to merge.',
+                            }))
+                            setMrAction(null)
+                            setDeleteBranchOnMerge(false)
+                            return
+                          }
                           if (
                             deleteBranchOnMerge &&
                             activeMr.compare &&
@@ -1296,10 +1440,16 @@ function RemoteRepoModal({
                                     status: 'merged',
                                     commits: mrDetail.commits,
                                     diffs: mrDetail.diffs,
+                                    mergeStatus: 'merged',
+                                    conflictFiles: [],
+                                    mergeMessage: null,
                                   }
                                 : mr
                             )
                           )
+                          if (selectedBranch === activeMr.base) {
+                            setCommitRefreshToken((prev) => prev + 1)
+                          }
                         } else {
                           setMergeRequests((prev) =>
                             prev.map((mr) =>
@@ -1309,6 +1459,9 @@ function RemoteRepoModal({
                                     status: 'closed',
                                     commits: mrDetail.commits,
                                     diffs: mrDetail.diffs,
+                                    mergeStatus: 'closed',
+                                    conflictFiles: [],
+                                    mergeMessage: null,
                                   }
                                 : mr
                             )
@@ -1326,6 +1479,33 @@ function RemoteRepoModal({
                 <div className="remote-repo-modal__mr-summary">
                   {activeMr.base} ← {activeMr.compare}
                 </div>
+                {mrDetail.mergeStatus === 'conflict' ? (
+                  <div className="remote-repo-modal__mr-warning">
+                    <div className="remote-repo-modal__mr-warning-title">
+                      Merge blocked by conflicts.
+                      {mrDetail.conflictFiles?.length
+                        ? ` Files: ${mrDetail.conflictFiles.join(', ')}`
+                        : ''}
+                    </div>
+                    <div className="remote-repo-modal__mr-help-title">
+                      Resolve locally, then push the fix
+                    </div>
+                    <pre>
+                      git checkout {activeMr.compare}
+                      {'\n'}git pull origin {activeMr.base}
+                      {'\n'}# fix conflicts in your editor
+                      {'\n'}git add .
+                      {'\n'}git commit -m "Resolve conflicts"
+                      {'\n'}git push origin {activeMr.compare}
+                    </pre>
+                  </div>
+                ) : mrDetail.mergeStatus === 'already-merged' ? (
+                  <div className="remote-repo-modal__mr-warning">
+                    This branch is already merged into {activeMr.base}.
+                  </div>
+                ) : mrDetail.mergeMessage ? (
+                  <div className="remote-repo-modal__mr-warning">{mrDetail.mergeMessage}</div>
+                ) : null}
                 <div className="remote-repo-modal__mr-section">
                   <h3>Commits</h3>
                   {mrDetail.loading ? (

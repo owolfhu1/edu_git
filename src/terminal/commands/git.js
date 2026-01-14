@@ -214,7 +214,11 @@ const gitCommand = async (args, context) => {
       if (target === '.') {
         const statusMatrix = await git.statusMatrix({ fs, dir: root, gitdir })
         for (const [filepath] of statusMatrix) {
-          if (filepath.startsWith('.git')) {
+          if (
+            filepath.startsWith('.git') ||
+            filepath.startsWith('.remotes/') ||
+            filepath === '.edu_git_remote.json'
+          ) {
             continue
           }
           await git.add({ fs, dir: root, gitdir, filepath })
@@ -250,14 +254,39 @@ const gitCommand = async (args, context) => {
         return
       }
       const { root, gitdir } = repo
+      let mergeHead = null
+      try {
+        mergeHead = (await pfs.readFile(`${gitdir}/MERGE_HEAD`, 'utf8')).trim()
+      } catch (error) {
+        mergeHead = null
+      }
       const branch = await git.currentBranch({ fs, dir: root, gitdir, fullname: false })
+      let parents = undefined
+      if (mergeHead) {
+        const headOid = await git.resolveRef({
+          fs,
+          dir: root,
+          gitdir,
+          ref: branch || 'HEAD',
+        })
+        parents = [headOid, mergeHead]
+      }
       const sha = await git.commit({
         fs,
         dir: root,
         gitdir,
         author: { name: 'Learner', email: 'learner@example.com' },
         message,
+        parent: parents,
       })
+      if (mergeHead) {
+        try {
+          await pfs.unlink(`${gitdir}/MERGE_HEAD`)
+          await pfs.unlink(`${gitdir}/MERGE_MSG`)
+        } catch (error) {
+          // Ignore cleanup failures; merge commit is still created.
+        }
+      }
       appendOutput([`[${branch || 'main'} ${sha.slice(0, 7)}] ${message}`])
     } catch (error) {
       appendOutput([`fatal: ${error.message}`])
@@ -587,18 +616,17 @@ const gitCommand = async (args, context) => {
       }
       const { root, gitdir } = repo
       const remote = args[1] || 'origin'
-      const branchArg = args[2]
       const currentBranch = await git.currentBranch({
         fs,
         dir: root,
         gitdir,
         fullname: false,
       })
-      const branch = branchArg || currentBranch
-      if (!branch) {
+      if (!currentBranch) {
         appendOutput(['fatal: pull requires a branch name'])
         return
       }
+      const remoteBranch = args[2] || currentBranch
       const url = await git.getConfig({
         fs,
         dir: root,
@@ -615,9 +643,26 @@ const gitCommand = async (args, context) => {
         fs,
         dir: remoteRepo.remotePath,
         gitdir: remoteRepo.gitdir,
-        ref: branch,
+        ref: remoteBranch,
       })
-      const localOid = await git.resolveRef({ fs, dir: root, gitdir, ref: branch })
+      await git.writeRef({
+        fs,
+        dir: root,
+        gitdir,
+        ref: `refs/remotes/${remote}/${remoteBranch}`,
+        value: remoteOid,
+        force: true,
+      })
+      const localOid = await git.resolveRef({
+        fs,
+        dir: root,
+        gitdir,
+        ref: currentBranch,
+      })
+      if (remoteOid === localOid) {
+        appendOutput(['Already up to date.'])
+        return
+      }
       const isFastForward = await git.isDescendent({
         fs,
         dir: root,
@@ -625,21 +670,74 @@ const gitCommand = async (args, context) => {
         oid: remoteOid,
         ancestor: localOid,
       })
-      if (!isFastForward) {
-        appendOutput(['fatal: Not possible to fast-forward, aborting.'])
+      if (isFastForward) {
+        await git.writeRef({
+          fs,
+          dir: root,
+          gitdir,
+          ref: `refs/heads/${currentBranch}`,
+          value: remoteOid,
+          force: true,
+        })
+        await git.checkout({ fs, dir: root, gitdir, ref: currentBranch, force: true })
+        await refreshTree()
+        appendOutput([`Updated ${currentBranch} from ${remote}/${remoteBranch}`])
         return
       }
-      await git.writeRef({
-        fs,
-        dir: root,
-        gitdir,
-        ref: `refs/heads/${branch}`,
-        value: remoteOid,
-        force: true,
-      })
-      await git.checkout({ fs, dir: root, gitdir, ref: branch, force: true })
-      await refreshTree()
-      appendOutput([`Updated ${branch} from ${remote}`])
+      try {
+        const result = await git.merge({
+          fs,
+          dir: root,
+          gitdir,
+          ours: currentBranch,
+          theirs: `refs/remotes/${remote}/${remoteBranch}`,
+          fastForward: true,
+          fastForwardOnly: false,
+          abortOnConflict: false,
+          author: { name: 'Learner', email: 'learner@example.com' },
+          committer: { name: 'Learner', email: 'learner@example.com' },
+        })
+        await refreshTree()
+        if (result?.alreadyMerged) {
+          appendOutput(['Already up to date.'])
+          return
+        }
+        appendOutput([`Merged ${remote}/${remoteBranch} into ${currentBranch}`])
+      } catch (error) {
+        if (error?.code === 'MergeConflictError') {
+          try {
+            await pfs.writeFile(`${gitdir}/MERGE_HEAD`, `${remoteOid}\n`)
+            await pfs.writeFile(
+              `${gitdir}/MERGE_MSG`,
+              `Merge ${remote}/${remoteBranch} into ${currentBranch}\n`
+            )
+          } catch (writeError) {
+            // Ignore merge state write errors.
+          }
+          const conflictFiles = error.data?.filepaths || []
+          for (const file of conflictFiles) {
+            try {
+              const content = await pfs.readFile(`${root}/${file}`, 'utf8')
+              const normalized = content
+                .replace(/([^\n])>>>>>>>/g, '$1\n>>>>>>>')
+                .replace(/<<<<<<<\s*/g, '<<<<<<< ')
+                .replace(/=======([^\n])/g, '=======\n$1')
+                .replace(/=======$/g, '=======')
+              const finalContent = normalized.endsWith('\n') ? normalized : `${normalized}\n`
+              await pfs.writeFile(`${root}/${file}`, finalContent)
+            } catch (readError) {
+              // Ignore cleanup failures; keep original conflict markers.
+            }
+          }
+          await refreshTree()
+          appendOutput([
+            'Automatic merge failed; fix conflicts and commit the result.',
+            ...conflictFiles.map((file) => `CONFLICT (content): ${file}`),
+          ])
+          return
+        }
+        appendOutput([`fatal: ${error.message}`])
+      }
     } catch (error) {
       appendOutput([`fatal: ${error.message}`])
     }

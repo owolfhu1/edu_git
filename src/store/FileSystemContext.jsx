@@ -393,6 +393,7 @@ function FileSystemProvider({ children }) {
     await ensureDir(pfs, '/src/components')
     await ensureDir(pfs, '/src/utils')
     await ensureDir(pfs, '/notes')
+    await ensureFile(pfs, '/.gitignore', '.remotes/\n.edu_git_remote.json\n')
     await ensureFile(pfs, '/README.txt', mockReadmeContent)
     await ensureFile(pfs, '/docs/overview.txt', mockDocsOverviewContent)
     await ensureFile(pfs, '/docs/setup.txt', mockDocsSetupContent)

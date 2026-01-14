@@ -1,6 +1,7 @@
 import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 import './FileStructure.css'
 import { FileSystemContext } from '../../store/FileSystemContext'
+import { FileIcon, FolderClosedIcon, FolderOpenIcon } from '../icons/FileIcons'
 
 function FileStructure() {
   const {
@@ -193,7 +194,11 @@ function FileStructure() {
                   })
                 }}
               >
-                {isExpanded ? '📂' : '📁'}
+                {isExpanded ? (
+                  <FolderOpenIcon className="file-structure__icon file-structure__icon--open" />
+                ) : (
+                  <FolderClosedIcon className="file-structure__icon file-structure__icon--closed" />
+                )}
               </button>
               <span
                 className="file-structure__folder"
@@ -231,7 +236,7 @@ function FileStructure() {
         >
           <button type="button" onClick={() => openFile(node.id)}>
             <span className="file-structure__file-icon" aria-hidden="true">
-              📄
+              <FileIcon className="file-structure__file-icon" />
             </span>
             {node.name}
           </button>
