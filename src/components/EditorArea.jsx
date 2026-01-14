@@ -1,5 +1,6 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import './EditorArea.css'
+import WorkspaceMenu from './WorkspaceMenu'
 import { FileSystemContext } from '../store/FileSystemContext'
 
 function EditorArea() {
@@ -87,40 +88,47 @@ function EditorArea() {
   return (
     <div className="editor-area">
       <div className="editor-area__tabs">
-        {openFiles.length === 0 ? (
-          <div className="editor-area__tab editor-area__tab--empty">No files open</div>
-        ) : (
-          openFiles.map((file) => (
-            <button
-              className={`editor-area__tab ${
-                selectedFilePath === file.id ? 'editor-area__tab--active' : ''
-              }`}
-              type="button"
-              key={file.id}
-              onClick={() => selectFile(file.id)}
-            >
-              <span>{file.name}</span>
-              <span
-                className="editor-area__tab-close"
-                role="button"
-                aria-label={`Close ${file.name}`}
-                onClick={(event) => {
-                  event.stopPropagation()
-                  closeFile(file.id)
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.stopPropagation()
-                    closeFile(file.id)
-                  }
-                }}
-                tabIndex={0}
-              >
-                ×
-              </span>
-            </button>
-          ))
-        )}
+        <div className="editor-area__tabs-left">
+          <div className="editor-area__tabs-scroll">
+            {openFiles.length === 0 ? (
+              <div className="editor-area__tab editor-area__tab--empty">No files open</div>
+            ) : (
+              openFiles.map((file) => (
+                <button
+                  className={`editor-area__tab ${
+                    selectedFilePath === file.id ? 'editor-area__tab--active' : ''
+                  }`}
+                  type="button"
+                  key={file.id}
+                  onClick={() => selectFile(file.id)}
+                >
+                  <span>{file.name}</span>
+                  <span
+                    className="editor-area__tab-close"
+                    role="button"
+                    aria-label={`Close ${file.name}`}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      closeFile(file.id)
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.stopPropagation()
+                        closeFile(file.id)
+                      }
+                    }}
+                    tabIndex={0}
+                  >
+                    ×
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+        <div className="editor-area__tabs-right">
+          <WorkspaceMenu />
+        </div>
       </div>
       <div className="editor-area__toolbar">
         <span className="editor-area__status">Branch: main</span>

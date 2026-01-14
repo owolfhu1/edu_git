@@ -2,6 +2,14 @@ import { createContext, useCallback, useEffect, useMemo, useRef, useState } from
 import LightningFS from '@isomorphic-git/lightning-fs'
 import readmeContent from '../content/README.txt?raw'
 import gitCheatSheetContent from '../content/GIT_CHEAT_SHEET.txt?raw'
+import mockReadmeContent from '../content/MOCK_README.txt?raw'
+import mockDocsOverviewContent from '../content/MOCK_DOCS_OVERVIEW.txt?raw'
+import mockDocsSetupContent from '../content/MOCK_DOCS_SETUP.txt?raw'
+import mockSrcIndexContent from '../content/MOCK_SRC_INDEX.txt?raw'
+import mockComponentAppContent from '../content/MOCK_COMPONENT_APP.txt?raw'
+import mockComponentSidebarContent from '../content/MOCK_COMPONENT_SIDEBAR.txt?raw'
+import mockUtilsHelpersContent from '../content/MOCK_UTILS_HELPERS.txt?raw'
+import mockNotesIdeasContent from '../content/MOCK_NOTES_IDEAS.txt?raw'
 
 const FileSystemContext = createContext(null)
 
@@ -96,6 +104,12 @@ const ensureFile = async (pfs, path, content) => {
   }
 }
 
+const clearRoot = async (pfs) => {
+  const entries = await pfs.readdir('/')
+  await Promise.all(entries.map((entry) => removePath(pfs, joinPath('/', entry))))
+}
+
+
 const removePath = async (pfs, targetPath) => {
   const stats = await pfs.stat(targetPath)
   if (stats.type === 'dir') {
@@ -162,16 +176,21 @@ function FileSystemProvider({ children }) {
     [pfs, statPath]
   )
 
+  const seedDefault = useCallback(async () => {
+    await ensureDir(pfs, '/src')
+    await ensureFile(pfs, '/src/README.txt', readmeContent)
+    await ensureFile(pfs, '/GIT_CHEAT_SHEET.txt', gitCheatSheetContent)
+  }, [pfs])
+
   useEffect(() => {
     const bootstrap = async () => {
-      await ensureDir(pfs, '/src')
-      await ensureFile(pfs, '/src/README.txt', readmeContent)
-      await ensureFile(pfs, '/GIT_CHEAT_SHEET.txt', gitCheatSheetContent)
+      await clearRoot(pfs)
+      await seedDefault()
       await refreshTree()
       setIsReady(true)
     }
     bootstrap()
-  }, [pfs, refreshTree])
+  }, [refreshTree, seedDefault])
 
   useEffect(() => {
     const loadSelected = async () => {
@@ -334,6 +353,35 @@ function FileSystemProvider({ children }) {
     return true
   }
 
+  const resetInstance = async () => {
+    await clearRoot(pfs)
+    await seedDefault()
+    await refreshTree()
+    setSelectedFilePath('/src/README.txt')
+    setOpenFilePaths(['/src/README.txt'])
+  }
+
+  const mockEnvironment = async () => {
+    await clearRoot(pfs)
+    await ensureDir(pfs, '/docs')
+    await ensureDir(pfs, '/src')
+    await ensureDir(pfs, '/src/components')
+    await ensureDir(pfs, '/src/utils')
+    await ensureDir(pfs, '/notes')
+    await ensureFile(pfs, '/README.txt', mockReadmeContent)
+    await ensureFile(pfs, '/docs/overview.txt', mockDocsOverviewContent)
+    await ensureFile(pfs, '/docs/setup.txt', mockDocsSetupContent)
+    await ensureFile(pfs, '/src/index.txt', mockSrcIndexContent)
+    await ensureFile(pfs, '/src/components/App.txt', mockComponentAppContent)
+    await ensureFile(pfs, '/src/components/Sidebar.txt', mockComponentSidebarContent)
+    await ensureFile(pfs, '/src/utils/helpers.txt', mockUtilsHelpersContent)
+    await ensureFile(pfs, '/notes/ideas.txt', mockNotesIdeasContent)
+    await ensureFile(pfs, '/GIT_CHEAT_SHEET.txt', gitCheatSheetContent)
+    await refreshTree()
+    setSelectedFilePath('/README.txt')
+    setOpenFilePaths(['/README.txt'])
+  }
+
   const value = {
     tree,
     isReady,
@@ -352,6 +400,8 @@ function FileSystemProvider({ children }) {
     statPath,
     readDirectory,
     readTextFile,
+    resetInstance,
+    mockEnvironment,
   }
 
   return (

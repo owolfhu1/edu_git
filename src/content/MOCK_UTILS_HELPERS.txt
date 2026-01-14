@@ -1,0 +1,7 @@
+Helpers
+
+formatLocation(trail):
+  return trail.city + ", " + trail.state
+
+sortTrails(trails):
+  return trails.sortedBy(name)

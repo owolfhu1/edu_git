@@ -2,7 +2,7 @@
 
 Edu Git is a browser-based Git education playground that mimics a lightweight IDE.
 Learners can create and edit text files, navigate a file tree, and run terminal-style
-commands while preparing for real Git workflows.
+commands while preparing for real Git workflows and follow guided tutorials.
 
 ## Stack
 

@@ -1,0 +1,5 @@
+Notes
+
+- Add filters for difficulty
+- Export trails to CSV
+- Support offline notes

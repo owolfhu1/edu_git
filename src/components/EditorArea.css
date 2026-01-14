@@ -14,6 +14,8 @@
   gap: 0.5rem;
   padding: 0.75rem 1rem;
   background: linear-gradient(90deg, #1e293b, #0f172a);
+  align-items: center;
+  justify-content: space-between;
 }
 
 .editor-area__tab {
@@ -27,12 +29,40 @@
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
+  flex-shrink: 0;
 }
 
 .editor-area__tab--active {
   background: #38bdf8;
   color: #0f172a;
   font-weight: 600;
+}
+
+.editor-area__tabs-left {
+  position: relative;
+  flex: 1;
+  height: 36px;
+  overflow: hidden;
+}
+
+.editor-area__tabs-scroll {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.editor-area__tabs-scroll::-webkit-scrollbar {
+  height: 0;
+}
+
+.editor-area__tabs-right {
+  display: flex;
+  align-items: center;
 }
 
 .editor-area__tab--empty {

@@ -1,0 +1,9 @@
+Entry Point
+
+initApp():
+  state = loadState()
+  ui = render(App, state)
+  mount(ui)
+
+main():
+  initApp()

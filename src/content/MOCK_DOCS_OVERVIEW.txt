@@ -1,0 +1,17 @@
+Project Overview
+
+Trail Tracker helps hikers save trail details and notes.
+
+Core Features
+- List trails
+- Save a new trail
+- View trail details
+- Add notes per trail
+
+Data Model
+Trail:
+  id
+  name
+  location
+  difficulty
+  notes[]

@@ -44,6 +44,7 @@ function FileStructure() {
     targetPath: '',
   })
   const menuRef = useRef(null)
+  const newMenuRef = useRef(null)
   const deleteModalRef = useRef(null)
 
   const startCreate = (type, parentId = null) => {
@@ -137,17 +138,26 @@ function FileStructure() {
   }
 
   useEffect(() => {
-    if (!menuState.isOpen) {
+    if (!menuState.isOpen && !submenuOpen) {
       return undefined
     }
     const handleClick = (event) => {
-      if (menuRef.current && !menuRef.current.contains(event.target)) {
+      if (menuRef.current && menuRef.current.contains(event.target)) {
+        return
+      }
+      if (newMenuRef.current && newMenuRef.current.contains(event.target)) {
+        return
+      }
+      if (submenuOpen) {
+        setSubmenuOpen(false)
+      }
+      if (menuState.isOpen) {
         closeMenu()
       }
     }
     document.addEventListener('click', handleClick)
     return () => document.removeEventListener('click', handleClick)
-  }, [menuState.isOpen])
+  }, [menuState.isOpen, submenuOpen])
 
   useEffect(() => {
     if (deleteState.isOpen && deleteModalRef.current) {
@@ -245,7 +255,7 @@ function FileStructure() {
     <div className="file-structure">
       <div className="file-structure__header">
         <span>Files</span>
-        <div className="file-structure__new">
+        <div className="file-structure__new" ref={newMenuRef}>
           <button
             className="file-structure__button"
             type="button"

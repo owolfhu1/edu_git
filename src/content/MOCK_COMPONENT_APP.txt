@@ -1,0 +1,9 @@
+Component App
+
+render():
+  header("Trail Tracker")
+  sidebar(TrailList)
+  main(TrailDetails)
+
+onTrailSelect(trailId):
+  setSelectedTrail(trailId)

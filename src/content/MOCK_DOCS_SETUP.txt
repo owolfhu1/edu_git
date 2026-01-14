@@ -1,0 +1,10 @@
+Setup Notes
+
+Local Steps
+1. Install dependencies
+2. Run the dev server
+3. Open the app in the browser
+
+Testing
+- Run unit tests for utils
+- Run UI smoke tests

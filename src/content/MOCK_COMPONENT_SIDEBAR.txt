@@ -1,0 +1,7 @@
+Component Sidebar
+
+render(trails):
+  list = []
+  for trail in trails:
+    list.append(trail.name)
+  return list
