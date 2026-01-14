@@ -1,6 +1,6 @@
 import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 import './FileStructure.css'
-import { FileSystemContext } from '../store/FileSystemContext'
+import { FileSystemContext } from '../../store/FileSystemContext'
 
 function FileStructure() {
   const {

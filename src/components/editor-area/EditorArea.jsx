@@ -1,189 +1,10 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import git from 'isomorphic-git'
 import './EditorArea.css'
-import WorkspaceMenu from './WorkspaceMenu'
-import { FileSystemContext } from '../store/FileSystemContext'
-
-const normalizeGitPath = (path) => path.replace(/^\/+/, '')
-
-const decodeContent = (content) => {
-  if (!content) {
-    return ''
-  }
-  if (typeof content === 'string') {
-    return content
-  }
-  return new TextDecoder().decode(content)
-}
-
-const readBlobAtPath = async (fs, root, gitdir, ref, targetPath) => {
-  const normalizedTarget = normalizeGitPath(targetPath)
-  if (!normalizedTarget) {
-    return ''
-  }
-  let treeOid
-  try {
-    const commitOid = await git.resolveRef({ fs, dir: root, gitdir, ref })
-    const { commit } = await git.readCommit({ fs, dir: root, gitdir, oid: commitOid })
-    treeOid = commit.tree
-  } catch (error) {
-    return ''
-  }
-
-  const parts = normalizedTarget.split('/')
-  let currentTree = treeOid
-  for (let index = 0; index < parts.length; index += 1) {
-    const part = parts[index]
-    const { tree } = await git.readTree({ fs, dir: root, gitdir, oid: currentTree })
-    const entry = tree.find((item) => item.path === part)
-    if (!entry) {
-      return ''
-    }
-    if (index === parts.length - 1) {
-      if (entry.type !== 'blob') {
-        return ''
-      }
-      const { blob } = await git.readBlob({ fs, dir: root, gitdir, oid: entry.oid })
-      return decodeContent(blob)
-    }
-    if (entry.type !== 'tree') {
-      return ''
-    }
-    currentTree = entry.oid
-  }
-  return ''
-}
-
-const findGitRootForPath = async (path, statPath) => {
-  let current = path.split('/').slice(0, -1).join('/') || '/'
-  while (true) {
-    const gitDir = `${current === '/' ? '' : current}/.git`
-    const stats = await statPath(gitDir || '/.git')
-    if (stats && stats.type === 'dir') {
-      return current
-    }
-    if (current === '/') {
-      return null
-    }
-    current = current.split('/').slice(0, -1).join('/') || '/'
-  }
-}
-
-const computeDiffOps = (oldText, newText) => {
-  const oldLines = oldText.split('\n')
-  const newLines = newText.split('\n')
-  const rows = oldLines.length
-  const cols = newLines.length
-  const dp = Array.from({ length: rows + 1 }, () => Array(cols + 1).fill(0))
-
-  for (let i = 1; i <= rows; i += 1) {
-    for (let j = 1; j <= cols; j += 1) {
-      if (oldLines[i - 1] === newLines[j - 1]) {
-        dp[i][j] = dp[i - 1][j - 1] + 1
-      } else {
-        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1])
-      }
-    }
-  }
-
-  let i = rows
-  let j = cols
-  const ops = []
-
-  while (i > 0 || j > 0) {
-    if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
-      ops.push({ type: 'equal', line: oldLines[i - 1] })
-      i -= 1
-      j -= 1
-    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
-      ops.push({ type: 'add', line: newLines[j - 1] })
-      j -= 1
-    } else {
-      ops.push({ type: 'del', line: oldLines[i - 1] })
-      i -= 1
-    }
-  }
-
-  return ops.reverse()
-}
-
-const buildGutterMarks = (oldText, newText) => {
-  const ops = computeDiffOps(oldText, newText)
-  const newLines = newText.split('\n')
-  const addedLines = new Set()
-  const modifiedLines = new Set()
-  const removedMarkers = new Set()
-  const changes = []
-  const changeMap = new Map()
-  let newIndex = 0
-  let oldIndex = 0
-  let run = null
-
-  const flushRun = () => {
-    if (!run) {
-      return
-    }
-    const type =
-      run.oldLines.length > 0 && run.newLines.length > 0
-        ? 'modify'
-        : run.newLines.length > 0
-          ? 'add'
-          : 'delete'
-    const markerLine = Math.min(newLines.length, Math.max(1, run.newStart))
-    const change = {
-      type,
-      oldLines: run.oldLines,
-      newLines: run.newLines,
-      newStart: run.newStart,
-      newEnd: run.newStart + run.newLines.length - 1,
-      markerLine,
-    }
-    changes.push(change)
-    if (type === 'delete') {
-      removedMarkers.add(markerLine)
-      changeMap.set(markerLine, change)
-    } else {
-      const start = change.newStart
-      const end = change.newEnd
-      for (let line = start; line <= end; line += 1) {
-        if (type === 'add') {
-          addedLines.add(line)
-        } else {
-          modifiedLines.add(line)
-        }
-        changeMap.set(line, change)
-      }
-    }
-    run = null
-  }
-
-  ops.forEach((op) => {
-    if (op.type === 'equal') {
-      flushRun()
-      newIndex += 1
-      oldIndex += 1
-      return
-    }
-    if (!run) {
-      run = {
-        oldLines: [],
-        newLines: [],
-        newStart: newIndex + 1,
-      }
-    }
-    if (op.type === 'add') {
-      run.newLines.push(op.line)
-      newIndex += 1
-      return
-    }
-    run.oldLines.push(op.line)
-    oldIndex += 1
-  })
-
-  flushRun()
-
-  return { addedLines, modifiedLines, removedMarkers, changeMap, changes }
-}
+import WorkspaceMenu from '../workspace-menu/WorkspaceMenu'
+import { FileSystemContext } from '../../store/FileSystemContext'
+import { buildGutterMarks } from '../../git/diff'
+import { findGitRootForPath } from '../../git/paths'
+import { readBlobAtPath } from '../../git/read'
 
 function EditorArea() {
   const {
@@ -426,6 +247,7 @@ function EditorArea() {
                   }`}
                   type="button"
                   key={file.id}
+                  title={`ROOT${file.path}`}
                   onClick={() => selectFile(file.id)}
                 >
                   <span>{file.name}</span>
@@ -455,12 +277,6 @@ function EditorArea() {
         <div className="editor-area__tabs-right">
           <WorkspaceMenu />
         </div>
-      </div>
-      <div className="editor-area__toolbar">
-        <span className="editor-area__status">Branch: main</span>
-        <span className="editor-area__status">
-          {selectedFile ? 'Changes: 1' : 'Changes: 0'}
-        </span>
       </div>
       <div className="editor-area__content">
         {selectedFile ? (

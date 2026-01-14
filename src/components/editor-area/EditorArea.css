@@ -89,16 +89,6 @@
   background: rgba(15, 23, 42, 0.35);
 }
 
-.editor-area__toolbar {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 0.5rem 1rem;
-  background: #e2e8f0;
-  font-size: 0.85rem;
-  color: #0f172a;
-}
-
 .editor-area__content {
   flex: 1;
   padding: 1.25rem;

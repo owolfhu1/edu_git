@@ -1,4 +1,5 @@
 import { createContext, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import git from 'isomorphic-git'
 import LightningFS from '@isomorphic-git/lightning-fs'
 import readmeContent from '../content/README.txt?raw'
 import gitCheatSheetContent from '../content/GIT_CHEAT_SHEET.txt?raw'
@@ -45,7 +46,9 @@ const sortNodes = (nodes) =>
 const buildTree = async (pfs, dirPath = '/') => {
   const entries = await pfs.readdir(dirPath)
   const nodes = await Promise.all(
-    entries.map(async (entry) => {
+    entries
+      .filter((entry) => entry !== '.git')
+      .map(async (entry) => {
       const path = joinPath(dirPath, entry)
       const stats = await pfs.stat(path)
       if (stats.type === 'dir') {
@@ -154,6 +157,7 @@ function FileSystemProvider({ children }) {
   const [selectedFile, setSelectedFile] = useState(null)
   const [openFilePaths, setOpenFilePaths] = useState(['/src/README.txt'])
   const [isReady, setIsReady] = useState(false)
+  const [resetToken, setResetToken] = useState(0)
 
   const refreshTree = useCallback(async () => {
     const nextTree = await buildTree(pfs, '/')
@@ -379,6 +383,7 @@ function FileSystemProvider({ children }) {
     await refreshTree()
     setSelectedFilePath('/src/README.txt')
     setOpenFilePaths(['/src/README.txt'])
+    setResetToken((prev) => prev + 1)
   }
 
   const mockEnvironment = async () => {
@@ -397,9 +402,26 @@ function FileSystemProvider({ children }) {
     await ensureFile(pfs, '/src/utils/helpers.txt', mockUtilsHelpersContent)
     await ensureFile(pfs, '/notes/ideas.txt', mockNotesIdeasContent)
     await ensureFile(pfs, '/GIT_CHEAT_SHEET.txt', gitCheatSheetContent)
+    const gitdir = '/.git'
+    await git.init({ fs: fsRef.current, dir: '/', gitdir, defaultBranch: 'main' })
+    const statusMatrix = await git.statusMatrix({ fs: fsRef.current, dir: '/', gitdir })
+    for (const [filepath] of statusMatrix) {
+      if (filepath.startsWith('.git')) {
+        continue
+      }
+      await git.add({ fs: fsRef.current, dir: '/', gitdir, filepath })
+    }
+    await git.commit({
+      fs: fsRef.current,
+      dir: '/',
+      gitdir,
+      author: { name: 'Edu Git', email: 'edu@example.com' },
+      message: 'init commit',
+    })
     await refreshTree()
     setSelectedFilePath('/README.txt')
     setOpenFilePaths(['/README.txt'])
+    setResetToken((prev) => prev + 1)
   }
 
   const value = {
@@ -407,6 +429,7 @@ function FileSystemProvider({ children }) {
     gitFs: fsRef.current.promises,
     tree,
     isReady,
+    resetToken,
     selectedFile,
     selectedFilePath,
     openFilePaths,

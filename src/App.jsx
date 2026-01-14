@@ -1,7 +1,5 @@
 import './App.css'
-import FileStructure from './components/FileStructure'
-import EditorArea from './components/EditorArea'
-import TerminalPane from './components/TerminalPane'
+import { EditorArea, FileStructure, TerminalPane } from './components'
 import { FileSystemProvider } from './store/FileSystemContext'
 
 function App() {

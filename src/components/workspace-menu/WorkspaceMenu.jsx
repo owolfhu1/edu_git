@@ -1,6 +1,6 @@
 import { useContext, useEffect, useRef, useState } from 'react'
 import './WorkspaceMenu.css'
-import { FileSystemContext } from '../store/FileSystemContext'
+import { FileSystemContext } from '../../store/FileSystemContext'
 
 function WorkspaceMenu() {
   const [isOpen, setIsOpen] = useState(false)
