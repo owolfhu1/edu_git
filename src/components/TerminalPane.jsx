@@ -25,21 +25,7 @@ const normalizePath = (input, cwdPath) => {
   return `/${stack.join('/')}`
 }
 
-const getNodeByPath = (tree, path) => {
-  if (path === '/') {
-    return { id: 'root', type: 'folder', name: '/', children: tree }
-  }
-  const segments = path.split('/').filter(Boolean)
-  let current = { children: tree }
-  for (const segment of segments) {
-    const next = current.children?.find((node) => node.name === segment)
-    if (!next) {
-      return null
-    }
-    current = next
-  }
-  return current
-}
+const ensureDirPath = (path) => (path === '' ? '/' : path)
 
 const splitPath = (path) => {
   if (path === '/') {
@@ -51,7 +37,15 @@ const splitPath = (path) => {
 }
 
 function TerminalPane() {
-  const { tree, createFile, createFolder } = useContext(FileSystemContext)
+  const {
+    createFile,
+    createFolder,
+    deleteNode,
+    readDirectory,
+    readTextFile,
+    statPath,
+  } = useContext(FileSystemContext)
+    useContext(FileSystemContext)
   const [cwdPath, setCwdPath] = useState('/src')
   const [lines, setLines] = useState([
     { type: 'output', text: 'Welcome to edu-git terminal. Type "help" to begin.' },
@@ -79,7 +73,7 @@ function TerminalPane() {
     ])
   }
 
-  const handleCommand = (rawInput) => {
+  const handleCommand = async (rawInput) => {
     const trimmed = rawInput.trim()
     if (!trimmed) {
       return
@@ -96,6 +90,8 @@ function TerminalPane() {
         '  cat <file>       Print a text file',
         '  touch <file>     Create a new text file',
         '  mkdir <folder>   Create a new folder',
+        '  rm [-r] <path>   Remove a file or folder',
+        '  rmdir <folder>   Remove an empty folder',
         '  clear            Clear the terminal output',
       ])
       return
@@ -108,20 +104,20 @@ function TerminalPane() {
 
     if (command === 'ls') {
       const targetPath = normalizePath(args[0] || '.', cwdPath)
-      const node = getNodeByPath(tree, targetPath)
-      if (!node || node.type !== 'folder') {
+      const entries = await readDirectory(targetPath)
+      if (!entries) {
         appendOutput([`ls: cannot access '${args[0] || '.'}': No such directory`])
         return
       }
-      const listing = node.children.map((child) => child.name).join('  ')
+      const listing = entries.join('  ')
       appendOutput([listing || ''])
       return
     }
 
     if (command === 'cd') {
       const targetPath = normalizePath(args[0] || '/', cwdPath)
-      const node = getNodeByPath(tree, targetPath)
-      if (!node || node.type !== 'folder') {
+      const stats = await statPath(targetPath)
+      if (!stats || stats.type !== 'dir') {
         appendOutput([`cd: ${args[0] || '/'}: No such directory`])
         return
       }
@@ -131,12 +127,12 @@ function TerminalPane() {
 
     if (command === 'cat') {
       const targetPath = normalizePath(args[0], cwdPath)
-      const node = getNodeByPath(tree, targetPath)
-      if (!node || node.type !== 'file') {
+      const content = await readTextFile(targetPath)
+      if (content === null) {
         appendOutput([`cat: ${args[0]}: No such file`])
         return
       }
-      const contentLines = node.content ? node.content.split('\n') : ['']
+      const contentLines = content ? content.split('\n') : ['']
       appendOutput(contentLines)
       return
     }
@@ -148,13 +144,13 @@ function TerminalPane() {
         appendOutput(['touch: missing file operand'])
         return
       }
-      const parent = getNodeByPath(tree, dirPath)
-      if (!parent || parent.type !== 'folder') {
+      const stats = await statPath(dirPath)
+      if (!stats || stats.type !== 'dir') {
         appendOutput([`touch: cannot create file in '${dirPath}'`])
         return
       }
-      const created = createFile({
-        parentId: parent.id === 'root' ? null : parent.id,
+      const created = await createFile({
+        parentId: dirPath === '/' ? null : ensureDirPath(dirPath),
         name,
       })
       if (!created) {
@@ -170,14 +166,67 @@ function TerminalPane() {
         appendOutput(['mkdir: missing operand'])
         return
       }
-      const parent = getNodeByPath(tree, dirPath)
-      if (!parent || parent.type !== 'folder') {
+      const stats = await statPath(dirPath)
+      if (!stats || stats.type !== 'dir') {
         appendOutput([`mkdir: cannot create directory '${dirPath}'`])
         return
       }
-      const created = createFolder({ parentId: parent.id === 'root' ? null : parent.id, name })
+      const created = await createFolder({
+        parentId: dirPath === '/' ? null : ensureDirPath(dirPath),
+        name,
+      })
       if (!created) {
         appendOutput([`mkdir: cannot create directory '${name}': File exists`])
+      }
+      return
+    }
+
+    if (command === 'rm') {
+      const flags = args.filter((arg) => arg.startsWith('-'))
+      const recursive = flags.includes('-r') || flags.includes('-rf') || flags.includes('-fr')
+      const targets = args.filter((arg) => !arg.startsWith('-'))
+      if (targets.length === 0) {
+        appendOutput(['rm: missing operand'])
+        return
+      }
+      for (const targetArg of targets) {
+        const targetPath = normalizePath(targetArg, cwdPath)
+        const stats = await statPath(targetPath)
+        if (!stats) {
+          appendOutput([`rm: cannot remove '${targetArg}': No such file or directory`])
+          continue
+        }
+        if (stats.type === 'dir' && !recursive) {
+          appendOutput([`rm: cannot remove '${targetArg}': Is a directory`])
+          continue
+        }
+        await deleteNode(targetPath)
+      }
+      return
+    }
+
+    if (command === 'rmdir') {
+      if (args.length === 0) {
+        appendOutput(['rmdir: missing operand'])
+        return
+      }
+      for (const targetArg of args) {
+        const targetPath = normalizePath(targetArg, cwdPath)
+        const stats = await statPath(targetPath)
+        if (!stats) {
+          appendOutput([`rmdir: failed to remove '${targetArg}': No such directory`])
+          continue
+        }
+        if (stats.type !== 'dir') {
+          appendOutput([`rmdir: failed to remove '${targetArg}': Not a directory`])
+          continue
+        }
+        const entries = await readDirectory(targetPath)
+        if (entries && entries.length > 0) {
+          appendOutput([`rmdir: failed to remove '${targetArg}': Directory not empty`])
+          continue
+        }
+        await deleteNode(targetPath)
       }
       return
     }
@@ -209,7 +258,7 @@ function TerminalPane() {
     appendOutput([`${command}: command not found`])
   }
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault()
     const current = input
     setLines((prev) => [...prev, { type: 'input', text: `${prompt} ${current}` }])
@@ -218,7 +267,7 @@ function TerminalPane() {
     }
     setHistoryIndex(-1)
     setInput('')
-    handleCommand(current)
+    await handleCommand(current)
   }
 
   const handleKeyDown = (event) => {

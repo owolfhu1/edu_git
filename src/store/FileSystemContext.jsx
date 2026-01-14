@@ -1,56 +1,9 @@
-import { createContext, useMemo, useState } from 'react'
+import { createContext, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import LightningFS from '@isomorphic-git/lightning-fs'
 import readmeContent from '../content/README.txt?raw'
 import gitCheatSheetContent from '../content/GIT_CHEAT_SHEET.txt?raw'
 
 const FileSystemContext = createContext(null)
-
-const initialTree = [
-  {
-    id: 'folder-src',
-    name: 'src',
-    type: 'folder',
-    children: [
-      {
-        id: 'file-readme',
-        name: 'README.txt',
-        type: 'file',
-        content: readmeContent,
-      },
-    ],
-  },
-  {
-    id: 'file-git-cheat',
-    name: 'GIT_CHEAT_SHEET.txt',
-    type: 'file',
-    content: gitCheatSheetContent,
-  },
-]
-
-const readNode = (nodes, id) => {
-  for (const node of nodes) {
-    if (node.id === id) {
-      return node
-    }
-    if (node.type === 'folder') {
-      const found = readNode(node.children, id)
-      if (found) {
-        return found
-      }
-    }
-  }
-  return null
-}
-
-const updateNode = (nodes, id, updater) =>
-  nodes.map((node) => {
-    if (node.id === id) {
-      return updater(node)
-    }
-    if (node.type === 'folder') {
-      return { ...node, children: updateNode(node.children, id, updater) }
-    }
-    return node
-  })
 
 const normalizeFileName = (name) => {
   const trimmed = name.trim()
@@ -66,25 +19,55 @@ const normalizeFileName = (name) => {
   return `${base}.txt`
 }
 
-const findSiblings = (nodes, parentId) => {
-  if (!parentId) {
-    return nodes
+const joinPath = (parent, name) => {
+  if (!parent || parent === '/') {
+    return `/${name}`
   }
-  const parent = readNode(nodes, parentId)
-  if (parent?.type !== 'folder') {
-    return null
-  }
-  return parent.children
+  return `${parent}/${name}`
 }
 
-const findParentId = (nodes, targetId, parentId = null) => {
+const sortNodes = (nodes) =>
+  nodes.slice().sort((a, b) => {
+    if (a.type !== b.type) {
+      return a.type === 'folder' ? -1 : 1
+    }
+    return a.name.localeCompare(b.name)
+  })
+
+const buildTree = async (pfs, dirPath = '/') => {
+  const entries = await pfs.readdir(dirPath)
+  const nodes = await Promise.all(
+    entries.map(async (entry) => {
+      const path = joinPath(dirPath, entry)
+      const stats = await pfs.stat(path)
+      if (stats.type === 'dir') {
+        return {
+          id: path,
+          path,
+          name: entry,
+          type: 'folder',
+          children: await buildTree(pfs, path),
+        }
+      }
+      return {
+        id: path,
+        path,
+        name: entry,
+        type: 'file',
+      }
+    })
+  )
+  return sortNodes(nodes)
+}
+
+const findNodeByPath = (nodes, targetPath) => {
   for (const node of nodes) {
-    if (node.id === targetId) {
-      return parentId
+    if (node.path === targetPath) {
+      return node
     }
     if (node.type === 'folder') {
-      const found = findParentId(node.children, targetId, node.id)
-      if (found !== null) {
+      const found = findNodeByPath(node.children, targetPath)
+      if (found) {
         return found
       }
     }
@@ -92,61 +75,165 @@ const findParentId = (nodes, targetId, parentId = null) => {
   return null
 }
 
-const removeNode = (nodes, id) =>
-  nodes
-    .filter((node) => node.id !== id)
-    .map((node) => {
-      if (node.type === 'folder') {
-        return { ...node, children: removeNode(node.children, id) }
-      }
-      return node
-    })
+const ensureDir = async (pfs, path) => {
+  try {
+    await pfs.mkdir(path)
+  } catch (error) {
+    if (error?.code !== 'EEXIST') {
+      throw error
+    }
+  }
+}
 
-const collectNodeIds = (node) => {
-  if (!node) {
-    return []
+const ensureFile = async (pfs, path, content) => {
+  try {
+    await pfs.stat(path)
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      throw error
+    }
+    await pfs.writeFile(path, content)
   }
-  if (node.type === 'folder') {
-    return [node.id, ...node.children.flatMap(collectNodeIds)]
+}
+
+const removePath = async (pfs, targetPath) => {
+  const stats = await pfs.stat(targetPath)
+  if (stats.type === 'dir') {
+    const entries = await pfs.readdir(targetPath)
+    await Promise.all(
+      entries.map((entry) => removePath(pfs, joinPath(targetPath, entry)))
+    )
+    await pfs.rmdir(targetPath)
+    return
   }
-  return [node.id]
+  await pfs.unlink(targetPath)
 }
 
 function FileSystemProvider({ children }) {
-  const [tree, setTree] = useState(initialTree)
-  const [selectedFileId, setSelectedFileId] = useState('file-readme')
-  const [openFileIds, setOpenFileIds] = useState(['file-readme'])
-
-  const selectedFile = useMemo(
-    () => readNode(tree, selectedFileId),
-    [tree, selectedFileId]
-  )
-  const openFiles = useMemo(
-    () => openFileIds.map((id) => readNode(tree, id)).filter(Boolean),
-    [tree, openFileIds]
-  )
-
-  const selectFile = (id) => {
-    const target = readNode(tree, id)
-    if (target?.type === 'file') {
-      setSelectedFileId(id)
-    }
+  const fsRef = useRef(null)
+  if (!fsRef.current) {
+    fsRef.current = new LightningFS('edu-git')
   }
+  const pfs = fsRef.current.promises
+  const [tree, setTree] = useState([])
+  const [selectedFilePath, setSelectedFilePath] = useState('/src/README.txt')
+  const [selectedFile, setSelectedFile] = useState(null)
+  const [openFilePaths, setOpenFilePaths] = useState(['/src/README.txt'])
+  const [isReady, setIsReady] = useState(false)
 
-  const openFile = (id) => {
-    const target = readNode(tree, id)
-    if (!target || target.type !== 'file') {
+  const refreshTree = useCallback(async () => {
+    const nextTree = await buildTree(pfs, '/')
+    setTree(nextTree)
+  }, [pfs])
+
+  const statPath = useCallback(
+    async (path) => {
+      try {
+        return await pfs.stat(path)
+      } catch (error) {
+        if (error?.code === 'ENOENT') {
+          return null
+        }
+        throw error
+      }
+    },
+    [pfs]
+  )
+
+  const readDirectory = useCallback(
+    async (path) => {
+      const stats = await statPath(path)
+      if (!stats || stats.type !== 'dir') {
+        return null
+      }
+      return pfs.readdir(path)
+    },
+    [pfs, statPath]
+  )
+
+  const readTextFile = useCallback(
+    async (path) => {
+      const stats = await statPath(path)
+      if (!stats || stats.type !== 'file') {
+        return null
+      }
+      return pfs.readFile(path, { encoding: 'utf8' })
+    },
+    [pfs, statPath]
+  )
+
+  useEffect(() => {
+    const bootstrap = async () => {
+      await ensureDir(pfs, '/src')
+      await ensureFile(pfs, '/src/README.txt', readmeContent)
+      await ensureFile(pfs, '/GIT_CHEAT_SHEET.txt', gitCheatSheetContent)
+      await refreshTree()
+      setIsReady(true)
+    }
+    bootstrap()
+  }, [pfs, refreshTree])
+
+  useEffect(() => {
+    const loadSelected = async () => {
+      if (!selectedFilePath) {
+        setSelectedFile(null)
+        return
+      }
+      try {
+        const content = await pfs.readFile(selectedFilePath, { encoding: 'utf8' })
+        const node = findNodeByPath(tree, selectedFilePath)
+        setSelectedFile({
+          id: selectedFilePath,
+          path: selectedFilePath,
+          name: node?.name || selectedFilePath.split('/').pop(),
+          type: 'file',
+          content,
+        })
+      } catch (error) {
+        setSelectedFile(null)
+      }
+    }
+    loadSelected()
+  }, [pfs, selectedFilePath, tree])
+
+  const openFiles = useMemo(
+    () =>
+      openFilePaths
+        .map((path) => {
+          const node = findNodeByPath(tree, path)
+          if (!node) {
+            return null
+          }
+          return { ...node, id: node.path }
+        })
+        .filter(Boolean),
+    [tree, openFilePaths]
+  )
+
+  const selectFile = (path) => {
+    if (!path) {
       return
     }
-    setOpenFileIds((prev) => (prev.includes(id) ? prev : [...prev, id]))
-    setSelectedFileId(id)
+    setSelectedFilePath(path)
   }
 
-  const closeFile = (id) => {
-    setOpenFileIds((prev) => {
-      const remaining = prev.filter((fileId) => fileId !== id)
-      setSelectedFileId((prevSelected) => {
-        if (prevSelected !== id) {
+  const openFile = async (path) => {
+    if (!path) {
+      return
+    }
+    const node = findNodeByPath(tree, path)
+    if (!node || node.type !== 'file') {
+      return
+    }
+    setOpenFilePaths((prev) => (prev.includes(path) ? prev : [...prev, path]))
+    setSelectedFilePath(path)
+  }
+
+  const closeFile = (path) => {
+    setOpenFilePaths((prev) => {
+      const remaining = prev.filter((filePath) => filePath !== path)
+      setSelectedFilePath((prevSelected) => {
+        if (prevSelected !== path) {
           return prevSelected
         }
         return remaining[remaining.length - 1] || null
@@ -155,115 +242,104 @@ function FileSystemProvider({ children }) {
     })
   }
 
-  const updateFileContent = (id, content) => {
-    setTree((prev) =>
-      updateNode(prev, id, (node) => ({ ...node, content }))
-    )
+  const updateFileContent = async (path, content) => {
+    await pfs.writeFile(path, content)
+    setSelectedFile((prev) => (prev ? { ...prev, content } : prev))
   }
 
-  const createFile = ({ parentId, name, content = '', autoOpen = false }) => {
+  const createFile = async ({ parentId, name, content = '', autoOpen = false }) => {
     const fileName = normalizeFileName(name)
     if (!fileName) {
       return null
     }
-    const siblings = findSiblings(tree, parentId)
-    if (!siblings || siblings.some((node) => node.name === fileName)) {
+    const parentPath = parentId || '/'
+    const filePath = joinPath(parentPath, fileName)
+    try {
+      await pfs.stat(filePath)
       return null
-    }
-    const newFile = {
-      id: `file-${Date.now()}`,
-      name: fileName,
-      type: 'file',
-      content,
-    }
-
-    setTree((prev) => {
-      if (!parentId) {
-        return [...prev, newFile]
+    } catch (error) {
+      if (error?.code !== 'ENOENT') {
+        return null
       }
-      return updateNode(prev, parentId, (node) => ({
-        ...node,
-        children: [...node.children, newFile],
-      }))
-    })
-    if (autoOpen) {
-      setOpenFileIds((prev) => (prev.includes(newFile.id) ? prev : [...prev, newFile.id]))
-      setSelectedFileId(newFile.id)
     }
-    return { id: newFile.id }
+    await pfs.writeFile(filePath, content)
+    await refreshTree()
+    if (autoOpen) {
+      setOpenFilePaths((prev) =>
+        prev.includes(filePath) ? prev : [...prev, filePath]
+      )
+      setSelectedFilePath(filePath)
+    }
+    return { id: filePath }
   }
 
-  const createFolder = ({ parentId, name }) => {
-    const siblings = findSiblings(tree, parentId)
-    if (!siblings || siblings.some((node) => node.name === name)) {
+  const createFolder = async ({ parentId, name }) => {
+    const parentPath = parentId || '/'
+    const folderPath = joinPath(parentPath, name.trim())
+    if (!name.trim()) {
       return false
     }
-    const newFolder = {
-      id: `folder-${Date.now()}`,
-      name,
-      type: 'folder',
-      children: [],
-    }
-
-    setTree((prev) => {
-      if (!parentId) {
-        return [...prev, newFolder]
+    try {
+      await pfs.stat(folderPath)
+      return false
+    } catch (error) {
+      if (error?.code !== 'ENOENT') {
+        return false
       }
-      return updateNode(prev, parentId, (node) => ({
-        ...node,
-        children: [...node.children, newFolder],
-      }))
-    })
+    }
+    await ensureDir(pfs, folderPath)
+    await refreshTree()
     return true
   }
 
-  const deleteNode = (id) => {
-    const target = readNode(tree, id)
+  const deleteNode = async (path) => {
+    const target = findNodeByPath(tree, path)
     if (!target) {
       return
     }
-    const idsToRemove = collectNodeIds(target)
-    setTree((prev) => removeNode(prev, id))
-    setOpenFileIds((prev) => prev.filter((fileId) => !idsToRemove.includes(fileId)))
-    setSelectedFileId((prevSelected) =>
-      idsToRemove.includes(prevSelected) ? null : prevSelected
-    )
+    await removePath(pfs, path)
+    await refreshTree()
+    setOpenFilePaths((prev) => prev.filter((filePath) => filePath !== path))
+    setSelectedFilePath((prevSelected) => (prevSelected === path ? null : prevSelected))
   }
 
-  const renameNode = (id, name) => {
-    const target = readNode(tree, id)
+  const renameNode = async (path, name) => {
+    const target = findNodeByPath(tree, path)
     if (!target) {
       return false
     }
-    const parentId = findParentId(tree, id)
-    const siblings = findSiblings(tree, parentId)
-    if (!siblings) {
-      return false
-    }
-    const nextName = target.type === 'file' ? normalizeFileName(name) : name.trim()
+    const parentPath = path.split('/').slice(0, -1).join('/') || '/'
+    const nextName =
+      target.type === 'file' ? normalizeFileName(name) : name.trim()
     if (!nextName) {
       return false
     }
-    const duplicate = siblings.some(
-      (node) => node.id !== id && node.name === nextName
-    )
-    if (duplicate) {
+    const nextPath = joinPath(parentPath, nextName)
+    try {
+      await pfs.stat(nextPath)
       return false
+    } catch (error) {
+      if (error?.code !== 'ENOENT') {
+        return false
+      }
     }
-    setTree((prev) =>
-      updateNode(prev, id, (node) => ({
-        ...node,
-        name: nextName,
-      }))
+    await pfs.rename(path, nextPath)
+    await refreshTree()
+    setOpenFilePaths((prev) =>
+      prev.map((filePath) => (filePath === path ? nextPath : filePath))
+    )
+    setSelectedFilePath((prevSelected) =>
+      prevSelected === path ? nextPath : prevSelected
     )
     return true
   }
 
   const value = {
     tree,
+    isReady,
     selectedFile,
-    selectedFileId,
-    openFileIds,
+    selectedFilePath,
+    openFilePaths,
     openFiles,
     selectFile,
     openFile,
@@ -273,6 +349,9 @@ function FileSystemProvider({ children }) {
     createFolder,
     deleteNode,
     renameNode,
+    statPath,
+    readDirectory,
+    readTextFile,
   }
 
   return (

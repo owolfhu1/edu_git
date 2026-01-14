@@ -5,7 +5,7 @@ import { FileSystemContext } from '../store/FileSystemContext'
 function FileStructure() {
   const {
     tree,
-    selectedFileId,
+    selectedFilePath,
     openFile,
     createFile,
     createFolder,
@@ -21,7 +21,7 @@ function FileStructure() {
   })
   const [submenuOpen, setSubmenuOpen] = useState(false)
   const [contextSubmenuOpen, setContextSubmenuOpen] = useState(false)
-  const [expandedFolders, setExpandedFolders] = useState(() => new Set(['folder-src']))
+  const [expandedFolders, setExpandedFolders] = useState(() => new Set(['/src']))
   const [createState, setCreateState] = useState({
     isOpen: false,
     type: 'file',
@@ -56,14 +56,14 @@ function FileStructure() {
     })
   }
 
-  const handleCreateConfirm = () => {
+  const handleCreateConfirm = async () => {
     const name = createState.name.trim()
     if (!name) {
       setCreateState((prev) => ({ ...prev, error: 'Name is required.' }))
       return
     }
     if (createState.type === 'folder') {
-      const created = createFolder({ parentId: createState.parentId, name })
+      const created = await createFolder({ parentId: createState.parentId, name })
       if (!created) {
         setCreateState((prev) => ({
           ...prev,
@@ -72,7 +72,7 @@ function FileStructure() {
         return
       }
     } else {
-      const created = createFile({
+      const created = await createFile({
         parentId: createState.parentId,
         name,
         autoOpen: true,
@@ -88,20 +88,20 @@ function FileStructure() {
     setCreateState((prev) => ({ ...prev, isOpen: false, name: '', error: '' }))
   }
 
-  const handleDeleteConfirm = () => {
+  const handleDeleteConfirm = async () => {
     if (deleteState.targetId) {
-      deleteNode(deleteState.targetId)
+      await deleteNode(deleteState.targetId)
     }
     setDeleteState({ isOpen: false, targetId: null, targetType: null, targetPath: '' })
   }
 
-  const handleRenameConfirm = () => {
+  const handleRenameConfirm = async () => {
     const name = renameState.name.trim()
     if (!name) {
       setRenameState((prev) => ({ ...prev, error: 'Name is required.' }))
       return
     }
-    const renamed = renameNode(renameState.targetId, name)
+    const renamed = await renameNode(renameState.targetId, name)
     if (!renamed) {
       setRenameState((prev) => ({
         ...prev,
@@ -210,7 +210,7 @@ function FileStructure() {
         )
       }
 
-      const isActive = selectedFileId === node.id
+      const isActive = selectedFilePath === node.id
       return (
         <li
           className={`file-structure__file ${
@@ -226,21 +226,7 @@ function FileStructure() {
       )
     })
 
-  const findNodePath = (nodes, targetId, parentPath = '') => {
-    for (const node of nodes) {
-      const currentPath = parentPath ? `${parentPath}/${node.name}` : node.name
-      if (node.id === targetId) {
-        return currentPath
-      }
-      if (node.type === 'folder') {
-        const found = findNodePath(node.children, targetId, currentPath)
-        if (found) {
-          return found
-        }
-      }
-    }
-    return ''
-  }
+  const findNodePath = (targetId) => targetId || ''
 
   const stripTxtExtension = (name) => {
     if (!name) {
@@ -351,9 +337,7 @@ function FileStructure() {
             type="button"
             className="file-structure__menu-item"
             onClick={() => {
-              const targetPath = menuState.targetId
-                ? findNodePath(tree, menuState.targetId)
-                : ''
+              const targetPath = findNodePath(menuState.targetId)
               const currentName = targetPath
                 ? targetPath.split('/').slice(-1)[0]
                 : ''
@@ -378,9 +362,7 @@ function FileStructure() {
             type="button"
             className="file-structure__menu-item file-structure__menu-item--danger"
             onClick={() => {
-              const targetPath = menuState.targetId
-                ? findNodePath(tree, menuState.targetId)
-                : ''
+              const targetPath = findNodePath(menuState.targetId)
               setDeleteState({
                 isOpen: true,
                 targetId: menuState.targetId,

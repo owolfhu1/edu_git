@@ -3,8 +3,14 @@ import './EditorArea.css'
 import { FileSystemContext } from '../store/FileSystemContext'
 
 function EditorArea() {
-  const { openFiles, selectedFile, selectedFileId, selectFile, closeFile, updateFileContent } =
-    useContext(FileSystemContext)
+  const {
+    openFiles,
+    selectedFile,
+    selectedFilePath,
+    selectFile,
+    closeFile,
+    updateFileContent,
+  } = useContext(FileSystemContext)
   const gutterRef = useRef(null)
   const editorRef = useRef(null)
   const measureRef = useRef(null)
@@ -87,7 +93,7 @@ function EditorArea() {
           openFiles.map((file) => (
             <button
               className={`editor-area__tab ${
-                selectedFileId === file.id ? 'editor-area__tab--active' : ''
+                selectedFilePath === file.id ? 'editor-area__tab--active' : ''
               }`}
               type="button"
               key={file.id}
