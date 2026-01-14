@@ -193,7 +193,7 @@ function FileStructure() {
                   })
                 }}
               >
-                {isExpanded ? '▾' : '▸'}
+                {isExpanded ? '📂' : '📁'}
               </button>
               <span
                 className="file-structure__folder"
@@ -230,6 +230,9 @@ function FileStructure() {
           onContextMenu={(event) => handleContextMenu(event, node.id, node.type)}
         >
           <button type="button" onClick={() => openFile(node.id)}>
+            <span className="file-structure__file-icon" aria-hidden="true">
+              📄
+            </span>
             {node.name}
           </button>
         </li>

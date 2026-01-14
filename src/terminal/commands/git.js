@@ -4,6 +4,56 @@ import { findGitRoot } from '../../git/paths'
 import { readBlobAtPath, readTreeContent } from '../../git/read'
 import { getRelativePath, normalizePath, toAbsolutePath } from '../utils'
 
+const REMOTE_ROOT = '/.remotes'
+
+const ensureDir = async (pfs, path) => {
+  try {
+    await pfs.mkdir(path)
+  } catch (error) {
+    if (error?.code !== 'EEXIST') {
+      throw error
+    }
+  }
+}
+
+const ensureRemoteRepo = async (fs, pfs, remoteName) => {
+  await ensureDir(pfs, REMOTE_ROOT)
+  const remotePath = `${REMOTE_ROOT}/${remoteName}`
+  await ensureDir(pfs, remotePath)
+  const gitdir = `${remotePath}/.git`
+  try {
+    await pfs.stat(gitdir)
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      throw error
+    }
+    await git.init({ fs, dir: remotePath, gitdir, defaultBranch: 'main' })
+  }
+  return { remotePath, gitdir }
+}
+
+const copyDir = async (pfs, source, destination) => {
+  try {
+    await ensureDir(pfs, destination)
+    const entries = await pfs.readdir(source)
+    for (const entry of entries) {
+      const fromPath = `${source}/${entry}`
+      const toPath = `${destination}/${entry}`
+      const stats = await pfs.stat(fromPath)
+      if (stats.type === 'dir') {
+        await copyDir(pfs, fromPath, toPath)
+      } else {
+        const content = await pfs.readFile(fromPath)
+        await pfs.writeFile(toPath, content)
+      }
+    }
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      throw error
+    }
+  }
+}
+
 const gitCommand = async (args, context) => {
   const {
     fs,
@@ -16,6 +66,7 @@ const gitCommand = async (args, context) => {
     setGitRoot,
     setBranchName,
   } = context
+  const pfs = fs.promises
   const subcommand = args[0]
   const resolveRepo = async () => {
     const root = await findGitRoot(cwdPath, statPath)
@@ -367,6 +418,211 @@ const gitCommand = async (args, context) => {
     await git.remove({ fs, dir: root, gitdir, filepath: sourceRel })
     await git.add({ fs, dir: root, gitdir, filepath: destRel })
     await refreshTree()
+    return
+  }
+
+  if (subcommand === 'remote') {
+    const repo = await resolveRepo()
+    if (!repo) {
+      return
+    }
+    const { root, gitdir } = repo
+    const action = args[1]
+    if (!action) {
+      const remotes = await git.listRemotes({ fs, dir: root, gitdir })
+      appendOutput(remotes.length ? remotes.map((item) => item.remote) : [''])
+      return
+    }
+    if (action === '-v') {
+      const remotes = await git.listRemotes({ fs, dir: root, gitdir })
+      const lines = remotes.flatMap((item) => [
+        `${item.remote}\t${item.url} (fetch)`,
+        `${item.remote}\t${item.url} (push)`,
+      ])
+      appendOutput(lines.length ? lines : [''])
+      return
+    }
+    if (action === 'add') {
+      const name = args[2]
+      const url = args[3]
+      if (!name || !url) {
+        appendOutput(['fatal: remote add requires name and url'])
+        return
+      }
+      await git.setConfig({ fs, dir: root, gitdir, path: `remote.${name}.url`, value: url })
+      appendOutput([`Added remote ${name}`])
+      return
+    }
+    appendOutput([`git: unknown remote command ${action}`])
+    return
+  }
+
+  if (subcommand === 'push') {
+    try {
+      const repo = await resolveRepo()
+      if (!repo) {
+        return
+      }
+      const { root, gitdir } = repo
+      const setUpstream = args.includes('-u') || args.includes('--set-upstream')
+      const remoteName = setUpstream ? args[2] : args[1]
+      const branchArg = setUpstream ? args[3] : args[2]
+      const remote = remoteName || 'origin'
+      const currentBranch = await git.currentBranch({
+        fs,
+        dir: root,
+        gitdir,
+        fullname: false,
+      })
+      const branch = branchArg || currentBranch
+      if (!branch) {
+        appendOutput(['fatal: push requires a branch name'])
+        return
+      }
+      const url = await git.getConfig({
+        fs,
+        dir: root,
+        gitdir,
+        path: `remote.${remote}.url`,
+      })
+      if (!url) {
+        appendOutput([`fatal: '${remote}' does not appear to be a git repository`])
+        return
+      }
+      const localOid = await git.resolveRef({ fs, dir: root, gitdir, ref: branch })
+      const remoteRepo = await ensureRemoteRepo(fs, pfs, remote)
+      await copyDir(pfs, `${gitdir}/objects`, `${remoteRepo.gitdir}/objects`)
+      await git.writeRef({
+        fs,
+        dir: remoteRepo.remotePath,
+        gitdir: remoteRepo.gitdir,
+        ref: `refs/heads/${branch}`,
+        value: localOid,
+        force: true,
+      })
+      appendOutput([`Pushed ${branch} to ${remote}`])
+    } catch (error) {
+      appendOutput([`fatal: ${error.message}`])
+    }
+    return
+  }
+
+  if (subcommand === 'fetch') {
+    try {
+      const repo = await resolveRepo()
+      if (!repo) {
+        return
+      }
+      const { root, gitdir } = repo
+      const remote = args[1] || 'origin'
+      const branchFilter = args[2]
+      const url = await git.getConfig({
+        fs,
+        dir: root,
+        gitdir,
+        path: `remote.${remote}.url`,
+      })
+      if (!url) {
+        appendOutput([`fatal: '${remote}' does not appear to be a git repository`])
+        return
+      }
+      const remoteRepo = await ensureRemoteRepo(fs, pfs, remote)
+      await copyDir(pfs, `${remoteRepo.gitdir}/objects`, `${gitdir}/objects`)
+      const remoteBranches = await git.listBranches({
+        fs,
+        dir: remoteRepo.remotePath,
+        gitdir: remoteRepo.gitdir,
+      })
+      const branches = branchFilter
+        ? remoteBranches.filter((name) => name === branchFilter)
+        : remoteBranches
+      for (const branch of branches) {
+        const remoteOid = await git.resolveRef({
+          fs,
+          dir: remoteRepo.remotePath,
+          gitdir: remoteRepo.gitdir,
+          ref: branch,
+        })
+        await git.writeRef({
+          fs,
+          dir: root,
+          gitdir,
+          ref: `refs/remotes/${remote}/${branch}`,
+          value: remoteOid,
+          force: true,
+        })
+      }
+      appendOutput([`Fetched ${remote}`])
+    } catch (error) {
+      appendOutput([`fatal: ${error.message}`])
+    }
+    return
+  }
+
+  if (subcommand === 'pull') {
+    try {
+      const repo = await resolveRepo()
+      if (!repo) {
+        return
+      }
+      const { root, gitdir } = repo
+      const remote = args[1] || 'origin'
+      const branchArg = args[2]
+      const currentBranch = await git.currentBranch({
+        fs,
+        dir: root,
+        gitdir,
+        fullname: false,
+      })
+      const branch = branchArg || currentBranch
+      if (!branch) {
+        appendOutput(['fatal: pull requires a branch name'])
+        return
+      }
+      const url = await git.getConfig({
+        fs,
+        dir: root,
+        gitdir,
+        path: `remote.${remote}.url`,
+      })
+      if (!url) {
+        appendOutput([`fatal: '${remote}' does not appear to be a git repository`])
+        return
+      }
+      const remoteRepo = await ensureRemoteRepo(fs, pfs, remote)
+      await copyDir(pfs, `${remoteRepo.gitdir}/objects`, `${gitdir}/objects`)
+      const remoteOid = await git.resolveRef({
+        fs,
+        dir: remoteRepo.remotePath,
+        gitdir: remoteRepo.gitdir,
+        ref: branch,
+      })
+      const localOid = await git.resolveRef({ fs, dir: root, gitdir, ref: branch })
+      const isFastForward = await git.isDescendent({
+        fs,
+        dir: root,
+        gitdir,
+        oid: remoteOid,
+        ancestor: localOid,
+      })
+      if (!isFastForward) {
+        appendOutput(['fatal: Not possible to fast-forward, aborting.'])
+        return
+      }
+      await git.writeRef({
+        fs,
+        dir: root,
+        gitdir,
+        ref: `refs/heads/${branch}`,
+        value: remoteOid,
+        force: true,
+      })
+      await git.checkout({ fs, dir: root, gitdir, ref: branch, force: true })
+      await refreshTree()
+      appendOutput([`Updated ${branch} from ${remote}`])
+    } catch (error) {
+      appendOutput([`fatal: ${error.message}`])
+    }
     return
   }
 

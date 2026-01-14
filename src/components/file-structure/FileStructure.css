@@ -95,10 +95,13 @@
   border: none;
   background: transparent;
   color: #94a3b8;
-  width: 1rem;
+  width: 20px;
   cursor: pointer;
   padding: 0;
   font-size: 0.9rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .file-structure__nested {
@@ -121,6 +124,17 @@
   cursor: pointer;
   padding: 0;
   font-size: 0.95rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.file-structure__file-icon {
+  width: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
 }
 
 .file-structure__file--active {

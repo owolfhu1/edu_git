@@ -47,7 +47,7 @@ const buildTree = async (pfs, dirPath = '/') => {
   const entries = await pfs.readdir(dirPath)
   const nodes = await Promise.all(
     entries
-      .filter((entry) => entry !== '.git')
+      .filter((entry) => entry !== '.git' && entry !== '.remotes')
       .map(async (entry) => {
       const path = joinPath(dirPath, entry)
       const stats = await pfs.stat(path)
@@ -417,6 +417,72 @@ function FileSystemProvider({ children }) {
       gitdir,
       author: { name: 'Edu Git', email: 'edu@example.com' },
       message: 'init commit',
+    })
+    await git.setConfig({
+      fs: fsRef.current,
+      dir: '/',
+      gitdir,
+      path: 'remote.origin.url',
+      value: 'https://remote.mock/edu-git',
+    })
+    await git.setConfig({
+      fs: fsRef.current,
+      dir: '/',
+      gitdir,
+      path: 'remote.origin.fetch',
+      value: '+refs/heads/*:refs/remotes/origin/*',
+    })
+    const ensureRemoteDir = async (path) => {
+      try {
+        await pfs.mkdir(path)
+      } catch (error) {
+        if (error?.code !== 'EEXIST') {
+          throw error
+        }
+      }
+    }
+    const copyDir = async (source, destination) => {
+      try {
+        await ensureRemoteDir(destination)
+        const entries = await pfs.readdir(source)
+        for (const entry of entries) {
+          const fromPath = `${source}/${entry}`
+          const toPath = `${destination}/${entry}`
+          const stats = await pfs.stat(fromPath)
+          if (stats.type === 'dir') {
+            await copyDir(fromPath, toPath)
+          } else {
+            const content = await pfs.readFile(fromPath)
+            await pfs.writeFile(toPath, content)
+          }
+        }
+      } catch (error) {
+        if (error?.code !== 'ENOENT') {
+          throw error
+        }
+      }
+    }
+    await ensureRemoteDir('/.remotes')
+    await ensureRemoteDir('/.remotes/origin')
+    const remotePath = '/.remotes/origin'
+    const remoteGitdir = '/.remotes/origin/.git'
+    try {
+      await pfs.stat(remoteGitdir)
+    } catch (error) {
+      if (error?.code !== 'ENOENT') {
+        throw error
+      }
+      await git.init({ fs: fsRef.current, dir: remotePath, gitdir: remoteGitdir, defaultBranch: 'main' })
+    }
+    await copyDir(gitdir, remoteGitdir)
+    const localOid = await git.resolveRef({ fs: fsRef.current, dir: '/', gitdir, ref: 'main' })
+    await git.writeRef({
+      fs: fsRef.current,
+      dir: remotePath,
+      gitdir: remoteGitdir,
+      ref: 'refs/heads/main',
+      value: localOid,
+      force: true,
     })
     await refreshTree()
     setSelectedFilePath('/README.txt')

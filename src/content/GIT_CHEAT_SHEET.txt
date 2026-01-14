@@ -33,3 +33,10 @@ Undo
 File Ops
   git rm <file>
   git mv <source> <dest>
+
+Remotes
+  git remote add origin <url>
+  git remote -v
+  git fetch origin
+  git pull origin <branch>
+  git push -u origin <branch>
