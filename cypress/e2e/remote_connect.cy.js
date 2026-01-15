@@ -15,6 +15,7 @@ describe('remote connection flow', () => {
   })
 
   it('connects the default repo to remote', () => {
+    runCommand('clear')
     runCommand('git status')
     cy.get('[data-cy=terminal-body]').should(
       'contain',

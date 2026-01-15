@@ -137,6 +137,11 @@ const mergeFileContents = (baseText, headText, targetText, headLabel, targetLabe
   const result = diff3Merge(headLines, baseLines, targetLines)
   let mergedText = ''
   let cleanMerge = true
+  const ensureLineBreak = () => {
+    if (mergedText && !mergedText.endsWith('\n')) {
+      mergedText += '\n'
+    }
+  }
 
   result.forEach((item) => {
     if (item.ok) {
@@ -144,10 +149,15 @@ const mergeFileContents = (baseText, headText, targetText, headLabel, targetLabe
     }
     if (item.conflict) {
       cleanMerge = false
+      ensureLineBreak()
       mergedText += `<<<<<<< ${headLabel}\n`
-      mergedText += item.conflict.a.join('')
+      const ours = item.conflict.a.join('')
+      mergedText += ours
+      ensureLineBreak()
       mergedText += '=======\n'
-      mergedText += item.conflict.b.join('')
+      const theirs = item.conflict.b.join('')
+      mergedText += theirs
+      ensureLineBreak()
       mergedText += `>>>>>>> ${targetLabel}\n`
     }
   })
@@ -346,9 +356,14 @@ const gitCommand = async (args, context) => {
           untracked.push(filepath)
           return
         }
-        if (stage !== head) {
-          staged.push({ filepath, isNew: head === 0 })
-        }
+      if (stage !== head) {
+        const isNew = head === 0
+        const isDeleted = stage === 0 && head !== 0
+        staged.push({
+          filepath,
+          status: isDeleted ? 'deleted' : isNew ? 'new file' : 'modified',
+        })
+      }
         if (workdir !== stage) {
           unstaged.push(filepath)
         }
@@ -361,7 +376,7 @@ const gitCommand = async (args, context) => {
       if (staged.length > 0) {
         appendOutput(['\x1b[33mChanges to be committed:\x1b[0m'])
         staged.forEach((item) =>
-          appendOutput([`  ${item.isNew ? 'new file' : 'modified'}: ${item.filepath}`])
+          appendOutput([`  ${item.status}: ${item.filepath}`])
         )
       }
       if (mergeHead) {
@@ -396,6 +411,64 @@ const gitCommand = async (args, context) => {
     const { root, gitdir } = repo
     const stagedOnly = args.includes('--staged') || args.includes('--cached')
     const targets = args.filter((arg) => !arg.startsWith('-') && arg !== 'diff')
+    if (!stagedOnly && targets.length > 0) {
+      const resolveRefOrOid = async (ref) => {
+        if (!ref) {
+          return null
+        }
+        if (ref === 'HEAD' || ref.includes('~') || ref.includes('^')) {
+          return resolveCommitish(fs, root, gitdir, ref)
+        }
+        if (/^[0-9a-f]{4,40}$/i.test(ref)) {
+          return git.expandOid({ fs, dir: root, gitdir, oid: ref })
+        }
+        try {
+          return await git.resolveRef({ fs, dir: root, gitdir, ref })
+        } catch (error) {
+          return null
+        }
+      }
+      const maybeOld = await resolveRefOrOid(targets[0])
+      const maybeNew = targets[1] ? await resolveRefOrOid(targets[1]) : null
+      if (maybeOld) {
+        const oldOid = maybeOld
+        const newOid = maybeNew || (await resolveRefOrOid('HEAD'))
+        if (!newOid) {
+          appendOutput([`fatal: bad revision '${targets[1] || 'HEAD'}'`])
+          return
+        }
+        const oldIndex = await buildBlobIndex(fs, root, gitdir, oldOid)
+        const newIndex = await buildBlobIndex(fs, root, gitdir, newOid)
+        const paths = new Set([...oldIndex.keys(), ...newIndex.keys()])
+        if (paths.size === 0) {
+          appendOutput([''])
+          return
+        }
+        for (const file of paths) {
+          if (file.startsWith('.remotes/') || file.startsWith('.git/')) {
+            continue
+          }
+          const oldBlob = oldIndex.get(file) || null
+          const newBlob = newIndex.get(file) || null
+          if (oldBlob === newBlob) {
+            continue
+          }
+          const oldText = await readBlobByOid(fs, root, gitdir, oldBlob)
+          const newText = await readBlobByOid(fs, root, gitdir, newBlob)
+          let diffLines = lcsDiff(oldText, newText, file)
+          if (oldBlob !== newBlob && oldText === newText) {
+            const header = [`diff -- ${file}`, `--- a/${file}`, `+++ b/${file}`]
+            if (!oldBlob && newBlob) {
+              diffLines = [...header, '@@ -0,0 +1,0 @@']
+            } else if (oldBlob && !newBlob) {
+              diffLines = [...header, '@@ -1,0 +0,0 @@']
+            }
+          }
+          appendOutput(diffLines)
+        }
+        return
+      }
+    }
     const statusMatrix = await git.statusMatrix({ fs, dir: root, gitdir })
     const changed = statusMatrix
       .filter(([filepath, head, workdir, stage]) =>
@@ -762,6 +835,14 @@ const gitCommand = async (args, context) => {
     }
     const absPath = normalizePath(target, cwdPath)
     const relative = getRelativePath(root, absPath)
+    try {
+      await fs.promises.unlink(absPath)
+    } catch (error) {
+      if (error?.code !== 'ENOENT') {
+        appendOutput([`fatal: ${error.message}`])
+        return
+      }
+    }
     await git.remove({ fs, dir: root, gitdir, filepath: relative })
     await refreshTree()
     return
@@ -1042,6 +1123,7 @@ const gitCommand = async (args, context) => {
               const content = await pfs.readFile(`${root}/${file}`, 'utf8')
               const normalized = content
                 .replace(/([^\n])>>>>>>>/g, '$1\n>>>>>>>')
+                .replace(/([^\n])=======/g, '$1\n=======')
                 .replace(/<<<<<<<\s*/g, '<<<<<<< ')
                 .replace(/=======([^\n])/g, '=======\n$1')
                 .replace(/=======$/g, '=======')
@@ -1161,6 +1243,7 @@ const gitCommand = async (args, context) => {
             const content = await pfs.readFile(`${root}/${file}`, 'utf8')
             const normalized = content
               .replace(/([^\n])>>>>>>>/g, '$1\n>>>>>>>')
+              .replace(/([^\n])=======/g, '$1\n=======')
               .replace(/<<<<<<<\s*/g, '<<<<<<< ')
               .replace(/=======([^\n])/g, '=======\n$1')
               .replace(/=======$/g, '=======')
@@ -1547,6 +1630,56 @@ const gitCommand = async (args, context) => {
     return
   }
 
+  if (subcommand === 'rev-parse') {
+    const repo = await resolveRepo()
+    if (!repo) {
+      return
+    }
+    const { root, gitdir } = repo
+    let target = args[1]
+    const shortFlag = target === '--short'
+    if (shortFlag) {
+      target = args[2]
+    }
+    if (!target) {
+      appendOutput(['fatal: rev-parse requires a revision'])
+      return
+    }
+    let oid = null
+    try {
+      if (target === 'HEAD' || target.includes('~') || target.includes('^')) {
+        oid = await resolveCommitish(fs, root, gitdir, target)
+      } else if (/^[0-9a-f]{4,39}$/i.test(target)) {
+        oid = await git.expandOid({ fs, dir: root, gitdir, oid: target })
+      } else {
+        try {
+          oid = await git.resolveRef({ fs, dir: root, gitdir, ref: target })
+        } catch (error) {
+          try {
+            oid = await git.resolveRef({
+              fs,
+              dir: root,
+              gitdir,
+              ref: `refs/heads/${target}`,
+            })
+          } catch (headError) {
+            oid = await git.resolveRef({
+              fs,
+              dir: root,
+              gitdir,
+              ref: `refs/remotes/${target}`,
+            })
+          }
+        }
+      }
+    } catch (error) {
+      appendOutput([`fatal: bad revision '${target}'`])
+      return
+    }
+    appendOutput([shortFlag ? oid.slice(0, 7) : oid])
+    return
+  }
+
   if (subcommand === 'log') {
     try {
       const root = await findGitRoot(cwdPath, statPath)
@@ -1556,7 +1689,25 @@ const gitCommand = async (args, context) => {
       }
       const gitdir = `${root === '/' ? '' : root}/.git`
       const commits = await git.log({ fs, dir: root, gitdir })
-      const lines = commits.map((commit) => {
+      let limit = null
+      const nIndex = args.findIndex((arg) => arg === '-n')
+      if (nIndex !== -1) {
+        const nValue = args[nIndex + 1]
+        const parsed = Number(nValue)
+        if (!Number.isNaN(parsed) && parsed > 0) {
+          limit = parsed
+        }
+      } else {
+        const inlineArg = args.find((arg) => /^-n\d+$/.test(arg))
+        if (inlineArg) {
+          const parsed = Number(inlineArg.slice(2))
+          if (!Number.isNaN(parsed) && parsed > 0) {
+            limit = parsed
+          }
+        }
+      }
+      const limitedCommits = limit ? commits.slice(0, limit) : commits
+      const lines = limitedCommits.map((commit) => {
         const message = commit.commit.message.split('\n')[0]
         return `${commit.oid.slice(0, 7)} ${message}`
       })

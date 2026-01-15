@@ -19,7 +19,11 @@ const openRemoteMr = () => {
   cy.get('[data-cy=workspace-menu-toggle]').click()
   cy.get('[data-cy=workspace-menu-panel]').should('be.visible')
   cy.get('[data-cy=workspace-menu-remote]').click()
+  cy.get('[data-cy=remote-modal]').should('be.visible')
   cy.get('[data-cy=remote-menu-merge-requests]').click()
+  cy.get('[data-cy=remote-mr-row][data-slug="conflicted_mr"]', {
+    timeout: 10000,
+  }).should('exist')
   cy.get('[data-cy=remote-mr-row][data-slug="conflicted_mr"]').click()
 }
 
@@ -31,6 +35,7 @@ const resolveReadmeConflict = () => {
   cy.get('[data-cy=editor-textarea]')
     .scrollIntoView()
     .click({ force: true })
+    .should('have.focus')
     .type('{selectall}{backspace}Welcome to Edu Git!{enter}Resolved content.{enter}', {
       force: true,
     })
@@ -87,8 +92,19 @@ describe('merge conflict workflows', () => {
 
     runCommand('git checkout main')
     runCommand('git pull origin main')
-    runCommand('git checkout -b test_cherry_resolved')
-    runCommand('git cherry-pick 9058276')
+    runCommand('git checkout test')
+    runCommand('clear')
+    runCommand('git log --oneline -n 1')
+    cy.get('[data-cy=terminal-line][data-line-type="output"]')
+      .last()
+      .invoke('text')
+      .then((line) => {
+        const sha = line.trim().split(' ')[0]
+        expect(sha).to.match(/^[0-9a-f]{7}$/i)
+        runCommand('git checkout main')
+        runCommand('git checkout -b test_cherry_resolved')
+        runCommand(`git cherry-pick ${sha}`)
+      })
     resolveReadmeConflict()
     runCommand('git add .')
     runCommand('git cherry-pick --continue')

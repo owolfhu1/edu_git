@@ -105,6 +105,8 @@ const lcsDiff = (oldText, newText, file) => {
 
   if (hunk) {
     pushHunkHeader()
+  } else if (oldText !== newText && lines.length === 3) {
+    lines.push('@@ -1,0 +1,0 @@')
   }
 
   return lines

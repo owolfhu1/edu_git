@@ -16,6 +16,7 @@ describe('edu-git terminal workflows', () => {
     cy.get('[data-cy=workspace-menu-toggle]').click()
     cy.get('[data-cy=workspace-menu-mock]').click()
 
+    runCommand('clear')
     runCommand('git status')
     cy.get('[data-cy=terminal-body]').should('contain', 'On branch')
   })

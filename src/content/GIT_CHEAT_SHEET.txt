@@ -9,6 +9,8 @@ Status + Log
   git diff --staged            Show staged changes.
   git log                      Show commit history.
   git log --oneline            Show a compact commit history.
+  git rev-parse HEAD           Show the full SHA for the current commit.
+  git rev-parse --short HEAD   Show the short SHA for the current commit.
 
 Staging + Commit
   git add <file>               Stage a file.
