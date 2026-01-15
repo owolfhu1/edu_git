@@ -14,7 +14,11 @@ describe('edu-git terminal workflows', () => {
 
   it('loads the mock full environment and runs git status', () => {
     cy.get('[data-cy=workspace-menu-toggle]').click()
+    cy.get('[data-cy=workspace-menu-panel]').should('be.visible')
     cy.get('[data-cy=workspace-menu-mock]').click()
+    cy.get('[data-cy=file-structure-folder][data-path="/docs"]', {
+      timeout: 20000,
+    }).should('exist')
 
     runCommand('clear')
     runCommand('git status')
