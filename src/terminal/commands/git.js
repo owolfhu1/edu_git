@@ -165,6 +165,24 @@ const mergeFileContents = (baseText, headText, targetText, headLabel, targetLabe
   return { cleanMerge, mergedText }
 }
 
+const STASH_FILE = 'EDU_GIT_STASH.json'
+
+const loadStash = async (pfs, gitdir) => {
+  try {
+    const content = await pfs.readFile(`${gitdir}/${STASH_FILE}`, 'utf8')
+    return JSON.parse(content)
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      return []
+    }
+    throw error
+  }
+}
+
+const saveStash = async (pfs, gitdir, entries) => {
+  await pfs.writeFile(`${gitdir}/${STASH_FILE}`, JSON.stringify(entries, null, 2))
+}
+
 const applyCommitChanges = async ({ fs, pfs, root, gitdir, commitOid, headOid }) => {
   const { commit } = await git.readCommit({ fs, dir: root, gitdir, oid: commitOid })
   const parentOid = commit.parent?.[0] || null
@@ -752,9 +770,15 @@ const gitCommand = async (args, context) => {
       return
     }
     const { root, gitdir } = repo
+    const softIndex = args.findIndex((arg) => arg === '--soft')
+    const mixedIndex = args.findIndex((arg) => arg === '--mixed')
     const hardIndex = args.findIndex((arg) => arg === '--hard')
-    if (hardIndex !== -1) {
-      const ref = args[hardIndex + 1] || 'HEAD'
+    const resetMode =
+      softIndex !== -1 ? 'soft' : mixedIndex !== -1 ? 'mixed' : hardIndex !== -1 ? 'hard' : 'mixed'
+    const modeIndex =
+      softIndex !== -1 ? softIndex : mixedIndex !== -1 ? mixedIndex : hardIndex !== -1 ? hardIndex : -1
+    const ref = modeIndex !== -1 ? args[modeIndex + 1] || 'HEAD' : args[1] || 'HEAD'
+    if (resetMode === 'hard' || resetMode === 'soft' || resetMode === 'mixed') {
       const currentBranch = await git.currentBranch({
         fs,
         dir: root,
@@ -805,10 +829,22 @@ const gitCommand = async (args, context) => {
           value: targetOid,
           force: true,
         })
-        await git.checkout({ fs, dir: root, gitdir, ref: currentBranch, force: true })
+        if (resetMode === 'hard') {
+          await git.checkout({ fs, dir: root, gitdir, ref: currentBranch, force: true })
+        } else if (resetMode === 'mixed') {
+          const tracked = new Set([
+            ...(await git.listFiles({ fs, dir: root, gitdir, ref: 'HEAD' })),
+            ...(await git.listFiles({ fs, dir: root, gitdir, ref: targetOid })),
+          ])
+          for (const filepath of tracked) {
+            await git.resetIndex({ fs, dir: root, gitdir, filepath, ref: targetOid })
+          }
+        }
         setBranchName(currentBranch)
       } else {
-        await git.checkout({ fs, dir: root, gitdir, ref: targetOid, force: true })
+        if (resetMode === 'hard') {
+          await git.checkout({ fs, dir: root, gitdir, ref: targetOid, force: true })
+        }
         setBranchName('detached')
       }
       await refreshTree()
@@ -820,6 +856,218 @@ const gitCommand = async (args, context) => {
       await git.resetIndex({ fs, dir: root, gitdir, filepath: relative })
       return
     }
+  }
+
+  if (subcommand === 'stash') {
+    const repo = await resolveRepo()
+    if (!repo) {
+      return
+    }
+    const { root, gitdir } = repo
+    let action = args[1] || 'push'
+    const stashArgs = args.slice(1)
+    if (action === '-m' || action === '--message') {
+      action = 'push'
+    }
+    const currentBranch = await git.currentBranch({
+      fs,
+      dir: root,
+      gitdir,
+      fullname: false,
+    })
+
+    if (action === 'list') {
+      const entries = await loadStash(pfs, gitdir)
+      if (entries.length === 0) {
+        appendOutput([''])
+        return
+      }
+      const lines = entries.map(
+        (entry, index) =>
+          `stash@{${index}}: WIP on ${entry.branch || 'detached'}: ${entry.message || 'WIP'}`
+      )
+      appendOutput(lines)
+      return
+    }
+
+    if (action === 'clear') {
+      await saveStash(pfs, gitdir, [])
+      appendOutput(['Cleared stash.'])
+      return
+    }
+
+    const resolveStashIndex = (ref = 'stash@{0}') => {
+      const match = ref.match(/stash@\{(\d+)\}/)
+      if (!match) {
+        return 0
+      }
+      return Number(match[1])
+    }
+
+    if (action === 'drop') {
+      const entries = await loadStash(pfs, gitdir)
+      const index = resolveStashIndex(args[2])
+      if (!entries[index]) {
+        appendOutput(['fatal: No stash found.'])
+        return
+      }
+      entries.splice(index, 1)
+      await saveStash(pfs, gitdir, entries)
+      appendOutput([`Dropped stash@{${index}}.`])
+      return
+    }
+
+    if (action === 'apply' || action === 'pop') {
+      const entries = await loadStash(pfs, gitdir)
+      const index = resolveStashIndex(args[2])
+      const entry = entries[index]
+      if (!entry) {
+        appendOutput(['fatal: No stash found.'])
+        return
+      }
+      const conflictFiles = []
+      for (const file of entry.files) {
+        const absPath = `${root === '/' ? '' : root}/${file.path}`
+        let currentText = ''
+        let hasCurrent = true
+        try {
+          currentText = await pfs.readFile(absPath, 'utf8')
+        } catch (error) {
+          hasCurrent = false
+          currentText = ''
+        }
+        const baseText = file.baseText ?? ''
+        const stashedText = file.stashedText
+
+        if (stashedText === null) {
+          if (hasCurrent && currentText !== baseText) {
+            const { mergedText } = mergeFileContents(
+              baseText,
+              currentText,
+              '',
+              'current',
+              'stash'
+            )
+            await pfs.writeFile(absPath, mergedText)
+            conflictFiles.push(file.path)
+          } else {
+            try {
+              await pfs.unlink(absPath)
+            } catch (error) {
+              // ignore missing files
+            }
+          }
+          continue
+        }
+
+        if (!file.baseText && file.wasUntracked && !hasCurrent) {
+          await pfs.writeFile(absPath, stashedText)
+          continue
+        }
+
+        const { cleanMerge, mergedText } = mergeFileContents(
+          baseText,
+          currentText,
+          stashedText,
+          'current',
+          'stash'
+        )
+        await pfs.writeFile(absPath, mergedText)
+        if (!cleanMerge) {
+          conflictFiles.push(file.path)
+        }
+      }
+      await refreshTree()
+      if (action === 'pop') {
+        entries.splice(index, 1)
+        await saveStash(pfs, gitdir, entries)
+      }
+      if (conflictFiles.length > 0) {
+        appendOutput([
+          'Stash apply resulted in conflicts.',
+          ...conflictFiles.map((file) => `CONFLICT (content): ${file}`),
+        ])
+      } else {
+        appendOutput(['Applied stash.'])
+      }
+      return
+    }
+
+    if (action === 'push' || action === 'save') {
+      const messageIndex = stashArgs.findIndex((arg) => arg === '-m' || arg === '--message')
+      const messageFromArgs =
+        messageIndex !== -1
+          ? stashArgs.slice(messageIndex + 1).join(' ')
+          : action === 'save'
+            ? stashArgs.slice(1).join(' ')
+            : 'WIP'
+      const message = messageFromArgs || 'WIP'
+      const statusMatrix = await git.statusMatrix({ fs, dir: root, gitdir })
+      const files = []
+      for (const [filepath, head, workdir, stage] of statusMatrix) {
+        if (filepath.startsWith('.remotes/')) {
+          continue
+        }
+        const isUntracked = head === 0 && workdir === 2 && stage === 0
+        const isChanged = head !== workdir || head !== stage
+        if (!isUntracked && !isChanged) {
+          continue
+        }
+        const absPath = `${root === '/' ? '' : root}/${filepath}`
+        let stashedText = null
+        try {
+          stashedText = await pfs.readFile(absPath, 'utf8')
+        } catch (error) {
+          stashedText = null
+        }
+        const baseText = await readBlobAtPath(fs, root, gitdir, 'HEAD', filepath)
+        files.push({
+          path: filepath,
+          baseText: baseText ?? '',
+          stashedText,
+          wasUntracked: isUntracked,
+        })
+      }
+      if (files.length === 0) {
+        appendOutput(['No local changes to save'])
+        return
+      }
+      const entries = await loadStash(pfs, gitdir)
+      entries.unshift({
+        message,
+        branch: currentBranch || 'detached',
+        createdAt: Date.now(),
+        files,
+      })
+      await saveStash(pfs, gitdir, entries)
+
+      for (const file of files) {
+        const absPath = `${root === '/' ? '' : root}/${file.path}`
+        if (file.wasUntracked) {
+          try {
+            await pfs.unlink(absPath)
+          } catch (error) {
+            // ignore
+          }
+          continue
+        }
+        await git.checkout({
+          fs,
+          dir: root,
+          gitdir,
+          ref: 'HEAD',
+          filepaths: [file.path],
+          force: true,
+          noUpdateHead: true,
+        })
+      }
+      await refreshTree()
+      appendOutput([`Saved working directory and index state ${message}`])
+      return
+    }
+
+    appendOutput([`fatal: unknown stash action '${action}'`])
+    return
   }
 
   if (subcommand === 'rm') {

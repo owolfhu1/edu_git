@@ -148,4 +148,13 @@ describe('conflict marker workflows', () => {
     openEditorFile('/src/components/App.txt')
     assertConflictMarkers()
   })
+
+  it('shows conflict markers for stash apply conflicts (docs/overview.txt)', () => {
+    editFile('/docs/overview.txt', 'Stash overview line')
+    runCommand('git stash -m "stash conflict"')
+    editFile('/docs/overview.txt', 'Current overview line')
+    runCommand('git stash apply')
+    openEditorFile('/docs/overview.txt')
+    assertConflictMarkers()
+  })
 })

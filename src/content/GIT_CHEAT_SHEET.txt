@@ -36,7 +36,16 @@ Undo
   git restore <file>           Restore a file from the last commit.
   git restore --staged <file>  Unstage a file.
   git reset HEAD <file>        Unstage a file (legacy style).
-  git reset --hard <commit>    Reset working tree and index to a commit.
+  git reset --soft <commit>    Move HEAD to a commit, keep index/worktree.
+  git reset --mixed <commit>   Reset index to a commit, keep worktree.
+  git reset --hard <commit>    Reset index and working tree to a commit.
+  git stash                    Save tracked + untracked changes.
+  git stash -m "message"       Save changes with a message.
+  git stash list               List saved stashes.
+  git stash apply              Apply the latest stash.
+  git stash pop                Apply the latest stash and drop it.
+  git stash drop stash@{0}     Drop a specific stash.
+  git stash clear              Remove all stashes.
   git merge --abort            Abort a merge in progress.
   git cherry-pick --abort      Abort a cherry-pick in progress.
   git cherry-pick --continue   Continue a cherry-pick after conflicts.
