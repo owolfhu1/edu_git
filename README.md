@@ -25,3 +25,19 @@ spin up example projects.
 yarn
 yarn dev
 ```
+
+## Testing
+
+The deploy workflow runs Cypress E2E tests before building GitHub Pages.
+
+Run locally:
+
+```sh
+yarn e2e
+```
+
+Watch in the Cypress UI:
+
+```sh
+yarn e2e:open
+```

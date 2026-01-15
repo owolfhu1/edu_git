@@ -180,7 +180,9 @@ const ensureFile = async (pfs, path, content) => {
 
 const clearRoot = async (pfs) => {
   const entries = await pfs.readdir('/')
-  await Promise.all(entries.map((entry) => removePath(pfs, joinPath('/', entry))))
+  for (const entry of entries) {
+    await removePath(pfs, joinPath('/', entry))
+  }
 }
 
 
@@ -195,15 +197,21 @@ const removePath = async (pfs, targetPath) => {
     throw error
   }
   if (stats.type === 'dir') {
-    const entries = await pfs.readdir(targetPath)
-    await Promise.all(
-      entries.map((entry) => removePath(pfs, joinPath(targetPath, entry)))
-    )
-    try {
-      await pfs.rmdir(targetPath)
-    } catch (error) {
-      if (error?.code !== 'ENOENT') {
-        throw error
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const entries = await pfs.readdir(targetPath)
+      for (const entry of entries) {
+        await removePath(pfs, joinPath(targetPath, entry))
+      }
+      try {
+        await pfs.rmdir(targetPath)
+        return
+      } catch (error) {
+        if (error?.code === 'ENOENT') {
+          return
+        }
+        if (error?.code !== 'ENOTEMPTY') {
+          throw error
+        }
       }
     }
     return

@@ -182,6 +182,8 @@ function FileStructure() {
                 type="button"
                 className="file-structure__chevron"
                 aria-label={isExpanded ? `Collapse ${node.name}` : `Expand ${node.name}`}
+                data-cy="file-structure-toggle"
+                data-path={node.id}
                 onClick={() => {
                   setExpandedFolders((prev) => {
                     const next = new Set(prev)
@@ -202,6 +204,8 @@ function FileStructure() {
               </button>
               <span
                 className="file-structure__folder"
+                data-cy="file-structure-folder"
+                data-path={node.id}
                 onContextMenu={(event) => handleContextMenu(event, node.id, node.type)}
                 onClick={() => {
                   setExpandedFolders((prev) => {
@@ -233,8 +237,10 @@ function FileStructure() {
           }`}
           key={node.id}
           onContextMenu={(event) => handleContextMenu(event, node.id, node.type)}
+          data-cy="file-structure-file"
+          data-path={node.id}
         >
-          <button type="button" onClick={() => openFile(node.id)}>
+          <button type="button" onClick={() => openFile(node.id)} data-cy="file-structure-open">
             <span className="file-structure__file-icon" aria-hidden="true">
               <FileIcon className="file-structure__file-icon" />
             </span>
@@ -260,7 +266,7 @@ function FileStructure() {
   }
 
   return (
-    <div className="file-structure">
+    <div className="file-structure" data-cy="file-structure">
       <div className="file-structure__header">
         <span>Files</span>
         <div className="file-structure__new" ref={newMenuRef}>
@@ -268,11 +274,12 @@ function FileStructure() {
             className="file-structure__button"
             type="button"
             onClick={() => setSubmenuOpen((prev) => !prev)}
+            data-cy="file-structure-new"
           >
             + New
           </button>
           {submenuOpen && (
-            <div className="file-structure__submenu">
+            <div className="file-structure__submenu" data-cy="file-structure-new-menu">
               <button
                 type="button"
                 className="file-structure__submenu-item"
@@ -280,6 +287,7 @@ function FileStructure() {
                   startCreate('file')
                   setSubmenuOpen(false)
                 }}
+                data-cy="file-structure-new-file"
               >
                 New File
               </button>
@@ -290,6 +298,7 @@ function FileStructure() {
                   startCreate('folder')
                   setSubmenuOpen(false)
                 }}
+                data-cy="file-structure-new-folder"
               >
                 New Folder
               </button>
@@ -297,7 +306,9 @@ function FileStructure() {
           )}
         </div>
       </div>
-      <ul className="file-structure__tree">{renderNodes(tree)}</ul>
+      <ul className="file-structure__tree" data-cy="file-structure-tree">
+        {renderNodes(tree)}
+      </ul>
       {menuState.isOpen && (
         <div className="file-structure__menu" style={menuStyle} ref={menuRef}>
           {menuState.targetType === 'folder' && (

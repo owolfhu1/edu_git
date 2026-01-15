@@ -49,14 +49,20 @@ function TerminalPane() {
         return
       }
       const gitdir = `${root === '/' ? '' : root}/.git`
-      const branch = await git.currentBranch({
-        fs,
-        dir: root,
-        gitdir,
-        fullname: false,
-      })
-      if (!cancelled) {
-        setBranchName(branch || 'detached')
+      try {
+        const branch = await git.currentBranch({
+          fs,
+          dir: root,
+          gitdir,
+          fullname: false,
+        })
+        if (!cancelled) {
+          setBranchName(branch || 'detached')
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setBranchName(null)
+        }
       }
     }
     updateBranch()
@@ -164,11 +170,20 @@ function TerminalPane() {
   }
 
   return (
-    <div className="terminal-pane" onClick={() => inputRef.current?.focus()}>
+    <div
+      className="terminal-pane"
+      data-cy="terminal"
+      onClick={() => inputRef.current?.focus()}
+    >
       <div className="terminal-pane__header">Terminal</div>
-      <div className="terminal-pane__body" ref={bodyRef}>
+      <div className="terminal-pane__body" ref={bodyRef} data-cy="terminal-body">
         {lines.map((line, index) => (
-          <div className={getLineClass(line.text)} key={`${line.type}-${index}`}>
+          <div
+            className={getLineClass(line.text)}
+            data-cy="terminal-line"
+            data-line-type={line.type}
+            key={`${line.type}-${index}`}
+          >
             {line.text}
           </div>
         ))}
@@ -181,6 +196,7 @@ function TerminalPane() {
             <input
               ref={inputRef}
               className="terminal-pane__input"
+              data-cy="terminal-input"
               value={input}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={handleKeyDown}

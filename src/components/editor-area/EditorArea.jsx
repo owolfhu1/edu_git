@@ -233,10 +233,10 @@ function EditorArea() {
   }
 
   return (
-    <div className="editor-area">
-      <div className="editor-area__tabs">
+    <div className="editor-area" data-cy="editor-area">
+      <div className="editor-area__tabs" data-cy="editor-tabs">
         <div className="editor-area__tabs-left">
-          <div className="editor-area__tabs-scroll">
+          <div className="editor-area__tabs-scroll" data-cy="editor-tabs-scroll">
             {openFiles.length === 0 ? (
               <div className="editor-area__tab editor-area__tab--empty">No files open</div>
             ) : (
@@ -248,6 +248,8 @@ function EditorArea() {
                   type="button"
                   key={file.id}
                   title={`ROOT${file.path}`}
+                  data-cy="editor-tab"
+                  data-path={file.id}
                   onClick={() => selectFile(file.id)}
                 >
                   <span>{file.name}</span>
@@ -278,7 +280,7 @@ function EditorArea() {
           <WorkspaceMenu />
         </div>
       </div>
-      <div className="editor-area__content">
+      <div className="editor-area__content" data-cy="editor-content">
         {selectedFile ? (
           <div className="editor-area__editor">
             <div className="editor-area__gutter" aria-hidden="true" ref={gutterRef}>
@@ -331,6 +333,7 @@ function EditorArea() {
               contentEditable="plaintext-only"
               suppressContentEditableWarning
               spellCheck="false"
+              data-cy="editor-textarea"
               onInput={(event) => {
                 handleChange(event)
                 ensureTrailingBreak()

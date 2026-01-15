@@ -1040,7 +1040,12 @@ function RemoteRepoModal({
         }
       }}
     >
-      <div className="remote-repo-modal" role="dialog" aria-modal="true">
+      <div
+        className="remote-repo-modal"
+        role="dialog"
+        aria-modal="true"
+        data-cy="remote-modal"
+      >
         <div className="remote-repo-modal__chrome">
           <div className="remote-repo-modal__nav">
             <button
@@ -1078,7 +1083,12 @@ function RemoteRepoModal({
               spellCheck="false"
             />
           </form>
-          <button type="button" className="remote-repo-modal__close" onClick={onClose}>
+          <button
+            type="button"
+            className="remote-repo-modal__close"
+            onClick={onClose}
+            data-cy="remote-modal-close"
+          >
             ×
           </button>
         </div>
@@ -1092,6 +1102,7 @@ function RemoteRepoModal({
                 className={`remote-repo-modal__badge ${
                   remoteState.connected ? 'remote-repo-modal__badge--linked' : ''
                 }`}
+                data-cy="remote-status"
               >
                 {remoteState.connected ? `Linked: ${REMOTE_NAME}` : 'No remote linked'}
               </div>
@@ -1116,6 +1127,7 @@ function RemoteRepoModal({
                     currentPath === entry.path ? 'is-active' : ''
                   }`}
                   onClick={() => onNavigate(entry.path)}
+                  data-cy={`remote-menu-${entry.path === '/' ? 'overview' : entry.path.slice(1)}`}
                 >
                   {entry.label}
                 </button>
@@ -1127,7 +1139,7 @@ function RemoteRepoModal({
             {page?.path === '/' && !fileRoute && (
               <>
                 <div className="remote-repo-modal__header">
-                  <h2>Remote Overview</h2>
+                  <h2 data-cy="remote-overview-title">Remote Overview</h2>
                   {remoteState.connected ? (
                     <label className="remote-repo-modal__select">
                       <span>Branch</span>
@@ -1181,13 +1193,13 @@ function RemoteRepoModal({
                 ) : null}
                 {!remoteState.connected ? (
                   <>
-                    <div className="remote-repo-modal__card">
+                    <div className="remote-repo-modal__card" data-cy="remote-init-card">
                       <h3>Initialize your repo</h3>
                       <pre>git init</pre>
                       <pre>git add .</pre>
                       <pre>git commit -m &quot;init&quot;</pre>
                     </div>
-                    <div className="remote-repo-modal__card">
+                    <div className="remote-repo-modal__card" data-cy="remote-connect-card">
                       <h3>Connect to remote</h3>
                       <pre>git remote add origin {BASE_URL}</pre>
                       <pre>git push -u origin main</pre>
@@ -1443,6 +1455,8 @@ function RemoteRepoModal({
                           key={mr.id}
                           className="remote-repo-modal__mr-row"
                           onClick={() => onNavigate(`/mr/${mr.slug}`)}
+                          data-cy="remote-mr-row"
+                          data-slug={mr.slug}
                         >
                           <span>{mr.title}</span>
                           <span>
@@ -1667,6 +1681,7 @@ function RemoteRepoModal({
                         className="remote-repo-modal__mr-summary-select"
                         value={activeMr.base}
                         disabled={activeMr.status !== 'open'}
+                        data-cy="mr-base-select"
                         onChange={(event) => {
                           const nextBase = event.target.value
                           if (isMrPairInvalid(nextBase, activeMr.compare)) {
@@ -1711,6 +1726,7 @@ function RemoteRepoModal({
                         className="remote-repo-modal__mr-summary-select"
                         value={activeMr.compare}
                         disabled={activeMr.status !== 'open'}
+                        data-cy="mr-compare-select"
                         onChange={(event) => {
                           const nextCompare = event.target.value
                           if (isMrPairInvalid(activeMr.base, nextCompare)) {

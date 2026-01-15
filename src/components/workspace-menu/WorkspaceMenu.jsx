@@ -133,18 +133,19 @@ function WorkspaceMenu() {
   }, [resetToken])
 
   return (
-    <div className="floating-menu" ref={menuRef}>
+    <div className="floating-menu" ref={menuRef} data-cy="workspace-menu">
       <button
         type="button"
         className="floating-menu__toggle"
         onClick={() => setIsOpen((prev) => !prev)}
         aria-expanded={isOpen}
         aria-haspopup="true"
+        data-cy="workspace-menu-toggle"
       >
         Workspace Menu
       </button>
       {isOpen && (
-        <div className="floating-menu__panel">
+        <div className="floating-menu__panel" data-cy="workspace-menu-panel">
           <button
             type="button"
             className="floating-menu__item"
@@ -152,6 +153,7 @@ function WorkspaceMenu() {
               setRemoteOpen(true)
               setIsOpen(false)
             }}
+            data-cy="workspace-menu-remote"
           >
             <span className="floating-menu__icon" aria-hidden="true">
               <RemoteIcon />
@@ -176,6 +178,7 @@ function WorkspaceMenu() {
               window.URL.revokeObjectURL(url)
               setIsOpen(false)
             }}
+            data-cy="workspace-menu-export"
           >
             <span className="floating-menu__icon" aria-hidden="true">
               <ExportIcon />
@@ -189,6 +192,7 @@ function WorkspaceMenu() {
               importInputRef.current?.click()
               setIsOpen(false)
             }}
+            data-cy="workspace-menu-import"
           >
             <span className="floating-menu__icon" aria-hidden="true">
               <ImportIcon />
@@ -202,6 +206,7 @@ function WorkspaceMenu() {
               await mockEnvironment()
               setIsOpen(false)
             }}
+            data-cy="workspace-menu-mock"
           >
             <span className="floating-menu__icon" aria-hidden="true">
               <MockIcon />
@@ -215,6 +220,7 @@ function WorkspaceMenu() {
               await resetInstance()
               setIsOpen(false)
             }}
+            data-cy="workspace-menu-reset"
           >
             <span className="floating-menu__icon" aria-hidden="true">
               <ResetIcon />
@@ -253,6 +259,7 @@ function WorkspaceMenu() {
         type="file"
         accept="application/json"
         style={{ display: 'none' }}
+        data-cy="workspace-menu-import-input"
         onChange={async (event) => {
           const file = event.target.files?.[0]
           if (!file) {
