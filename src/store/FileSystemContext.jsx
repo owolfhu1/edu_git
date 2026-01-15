@@ -3,6 +3,7 @@ import git from 'isomorphic-git'
 import LightningFS from '@isomorphic-git/lightning-fs'
 import readmeContent from '../content/README.txt?raw'
 import gitCheatSheetContent from '../content/GIT_CHEAT_SHEET.txt?raw'
+import gitInfoContent from '../content/GIT_INFO.txt?raw'
 import mockReadmeContent from '../content/MOCK_README.txt?raw'
 import mockDocsOverviewContent from '../content/MOCK_DOCS_OVERVIEW.txt?raw'
 import mockDocsSetupContent from '../content/MOCK_DOCS_SETUP.txt?raw'
@@ -11,6 +12,7 @@ import mockComponentAppContent from '../content/MOCK_COMPONENT_APP.txt?raw'
 import mockComponentSidebarContent from '../content/MOCK_COMPONENT_SIDEBAR.txt?raw'
 import mockUtilsHelpersContent from '../content/MOCK_UTILS_HELPERS.txt?raw'
 import mockNotesIdeasContent from '../content/MOCK_NOTES_IDEAS.txt?raw'
+import { seedMockConflictEnvironment } from './mockConflictEnvironment'
 
 const FileSystemContext = createContext(null)
 
@@ -33,6 +35,75 @@ const joinPath = (parent, name) => {
     return `/${name}`
   }
   return `${parent}/${name}`
+}
+
+const encodeBytes = (bytes) => {
+  let binary = ''
+  for (let index = 0; index < bytes.length; index += 1) {
+    binary += String.fromCharCode(bytes[index])
+  }
+  return btoa(binary)
+}
+
+const decodeBytes = (encoded) => {
+  const binary = atob(encoded)
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index)
+  }
+  return bytes
+}
+
+const exportFileSystem = async (pfs, rootPath = '/') => {
+  const entries = []
+  const walk = async (dirPath) => {
+    const names = await pfs.readdir(dirPath)
+    for (const name of names) {
+      const path = joinPath(dirPath, name)
+      const stats = await pfs.stat(path)
+      if (stats.type === 'dir') {
+        entries.push({ path, type: 'dir' })
+        await walk(path)
+      } else {
+        const content = await pfs.readFile(path)
+        entries.push({ path, type: 'file', data: encodeBytes(content) })
+      }
+    }
+  }
+  await walk(rootPath)
+  return entries
+}
+
+const createSnapshotString = ({ entries, ui, mergeRequests }) =>
+  JSON.stringify({
+    version: 1,
+    createdAt: Date.now(),
+    entries,
+    ui,
+    mergeRequests: mergeRequests || [],
+  })
+
+const createSnapshotFromSeed = async (pfs, seedFn, ui) => {
+  await clearRoot(pfs)
+  await seedFn()
+  const entries = await exportFileSystem(pfs, '/')
+  return createSnapshotString({
+    entries,
+    ui,
+    mergeRequests: typeof window !== 'undefined' ? window.__eduGitMergeRequests || [] : [],
+  })
+}
+
+const importFileSystem = async (pfs, entries) => {
+  const dirs = entries.filter((entry) => entry.type === 'dir')
+  const files = entries.filter((entry) => entry.type === 'file')
+  dirs.sort((a, b) => a.path.length - b.path.length)
+  for (const dir of dirs) {
+    await ensureDir(pfs, dir.path)
+  }
+  for (const file of files) {
+    await pfs.writeFile(file.path, decodeBytes(file.data))
+  }
 }
 
 const sortNodes = (nodes) =>
@@ -204,17 +275,52 @@ function FileSystemProvider({ children }) {
     await ensureDir(pfs, '/src')
     await ensureFile(pfs, '/src/README.txt', readmeContent)
     await ensureFile(pfs, '/GIT_CHEAT_SHEET.txt', gitCheatSheetContent)
+    await ensureFile(pfs, '/GIT_INFO.txt', gitInfoContent)
   }, [pfs])
+
+  const loadEnvironment = useCallback(
+    async (snapshotString) => {
+      if (!snapshotString) {
+        return false
+      }
+      try {
+        const snapshot = JSON.parse(snapshotString)
+        await clearRoot(pfs)
+        await importFileSystem(pfs, snapshot.entries || [])
+        await refreshTree()
+        if (snapshot.ui?.selectedFilePath) {
+          setSelectedFilePath(snapshot.ui.selectedFilePath)
+        } else {
+          setSelectedFilePath(null)
+        }
+        if (snapshot.ui?.openFilePaths?.length) {
+          setOpenFilePaths(snapshot.ui.openFilePaths)
+        } else {
+          setOpenFilePaths([])
+        }
+        if (typeof window !== 'undefined') {
+          window.__eduGitMergeRequests = snapshot.mergeRequests || []
+        }
+        setResetToken((prev) => prev + 1)
+        return true
+      } catch (error) {
+        return false
+      }
+    },
+    [pfs, refreshTree]
+  )
 
   useEffect(() => {
     const bootstrap = async () => {
-      await clearRoot(pfs)
-      await seedDefault()
-      await refreshTree()
+      const snapshotString = await createSnapshotFromSeed(pfs, seedDefault, {
+        selectedFilePath: '/src/README.txt',
+        openFilePaths: ['/src/README.txt'],
+      })
+      await loadEnvironment(snapshotString)
       setIsReady(true)
     }
     bootstrap()
-  }, [refreshTree, seedDefault])
+  }, [loadEnvironment, pfs, seedDefault])
 
   useEffect(() => {
     const loadSelected = async () => {
@@ -378,22 +484,19 @@ function FileSystemProvider({ children }) {
   }
 
   const resetInstance = async () => {
-    await clearRoot(pfs)
-    await seedDefault()
-    await refreshTree()
-    setSelectedFilePath('/src/README.txt')
-    setOpenFilePaths(['/src/README.txt'])
-    setResetToken((prev) => prev + 1)
+    const snapshotString = await createSnapshotFromSeed(pfs, seedDefault, {
+      selectedFilePath: '/src/README.txt',
+      openFilePaths: ['/src/README.txt'],
+    })
+    await loadEnvironment(snapshotString)
   }
 
-  const mockEnvironment = async () => {
-    await clearRoot(pfs)
+  const seedMockEnvironment = async () => {
     await ensureDir(pfs, '/docs')
     await ensureDir(pfs, '/src')
     await ensureDir(pfs, '/src/components')
     await ensureDir(pfs, '/src/utils')
     await ensureDir(pfs, '/notes')
-    await ensureFile(pfs, '/.gitignore', '.remotes/\n.edu_git_remote.json\n')
     await ensureFile(pfs, '/README.txt', mockReadmeContent)
     await ensureFile(pfs, '/docs/overview.txt', mockDocsOverviewContent)
     await ensureFile(pfs, '/docs/setup.txt', mockDocsSetupContent)
@@ -403,6 +506,7 @@ function FileSystemProvider({ children }) {
     await ensureFile(pfs, '/src/utils/helpers.txt', mockUtilsHelpersContent)
     await ensureFile(pfs, '/notes/ideas.txt', mockNotesIdeasContent)
     await ensureFile(pfs, '/GIT_CHEAT_SHEET.txt', gitCheatSheetContent)
+    await ensureFile(pfs, '/GIT_INFO.txt', gitInfoContent)
     const gitdir = '/.git'
     await git.init({ fs: fsRef.current, dir: '/', gitdir, defaultBranch: 'main' })
     const statusMatrix = await git.statusMatrix({ fs: fsRef.current, dir: '/', gitdir })
@@ -593,10 +697,46 @@ function FileSystemProvider({ children }) {
       `${remotePath}/.edu_git_remote.json`,
       JSON.stringify(remoteMetadata, null, 2)
     )
+  }
+
+  const mockEnvironment = async () => {
+    const snapshotString = await createSnapshotFromSeed(pfs, seedMockEnvironment, {
+      selectedFilePath: '/README.txt',
+      openFilePaths: ['/README.txt'],
+    })
+    await loadEnvironment(snapshotString)
+  }
+
+  const mockConflictEnvironment = async () => {
+    await clearRoot(pfs)
+    const result = await seedMockConflictEnvironment({ fs: fsRef.current, pfs })
     await refreshTree()
-    setSelectedFilePath('/README.txt')
-    setOpenFilePaths(['/README.txt'])
+    const openPath = result?.openFilePath || '/src/utils/helpers.txt'
+    setSelectedFilePath(openPath)
+    setOpenFilePaths([openPath])
     setResetToken((prev) => prev + 1)
+  }
+
+  const exportWorkspaceState = async () => {
+    try {
+      const entries = await exportFileSystem(pfs, '/')
+      const mergeRequests =
+        typeof window !== 'undefined' ? window.__eduGitMergeRequests || [] : []
+      return createSnapshotString({
+        entries,
+        ui: {
+          selectedFilePath,
+          openFilePaths,
+        },
+        mergeRequests,
+      })
+    } catch (error) {
+      return null
+    }
+  }
+
+  const importWorkspaceState = async (snapshotString) => {
+    return loadEnvironment(snapshotString)
   }
 
   const value = {
@@ -622,6 +762,10 @@ function FileSystemProvider({ children }) {
     readTextFile,
     resetInstance,
     mockEnvironment,
+    mockConflictEnvironment,
+    loadEnvironment,
+    exportWorkspaceState,
+    importWorkspaceState,
     refreshTree,
   }
 

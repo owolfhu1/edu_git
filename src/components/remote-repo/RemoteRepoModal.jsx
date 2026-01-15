@@ -122,6 +122,67 @@ const PAGES = [
   { path: '/merge-requests', label: 'Merge Requests' },
 ]
 
+const CONFLICT_STRATEGIES = [
+  { id: 'merge', label: 'Merge (default)' },
+  { id: 'rebase', label: 'Rebase' },
+  { id: 'cherry-pick', label: 'Cherry-pick' },
+]
+
+const buildConflictCommands = (strategy, baseBranch, compareBranch) => {
+  switch (strategy) {
+    case 'rebase':
+      return [
+        `git checkout ${compareBranch}`,
+        `git fetch origin`,
+        `git rebase origin/${baseBranch}`,
+        '# fix conflicts in your editor',
+        'git add .',
+        'git rebase --continue',
+        `git push --force-with-lease origin ${compareBranch}`,
+      ]
+    case 'cherry-pick':
+      return [
+        `git checkout ${baseBranch}`,
+        `git pull origin ${baseBranch}`,
+        `git checkout -b ${compareBranch}_resolved`,
+        'git cherry-pick <commit_sha>',
+        '# fix conflicts if any',
+        'git add .',
+        'git cherry-pick --continue',
+        `git push origin ${compareBranch}_resolved`,
+      ]
+    default:
+      return [
+        `git checkout ${compareBranch}`,
+        `git pull origin ${baseBranch}`,
+        '# fix conflicts in your editor',
+        'git add .',
+        'git commit',
+        `git push origin ${compareBranch}`,
+      ]
+  }
+}
+
+const buildConflictExplanation = (strategy, baseBranch, compareBranch) => {
+  switch (strategy) {
+    case 'rebase':
+      return `Rebase rewrites ${compareBranch} so its commits sit on top of ${baseBranch}, producing a linear history and smaller diffs during review. Use this when you want a clean commit graph and you are comfortable force-pushing updated history.`
+    case 'cherry-pick':
+      return `Cherry-pick moves a specific commit onto ${baseBranch} by creating a new branch with only the change you want. Use this when you need just one fix without bringing in the rest of ${compareBranch}.`
+    default:
+      return `Merge preserves the full history of ${compareBranch} and records a dedicated merge commit. Use this when you want the safest path that keeps all context and avoids rewriting history.`
+  }
+}
+
+const isBranchPairTaken = (mergeRequests, baseBranch, compareBranch, excludeId) =>
+  mergeRequests.some(
+    (mr) =>
+      mr.status === 'open' &&
+      mr.id !== excludeId &&
+      mr.base === baseBranch &&
+      mr.compare === compareBranch
+  )
+
 const buildRemoteTree = async (fs, dir, gitdir, ref) => {
   const commitOid = await git.resolveRef({ fs, dir, gitdir, ref })
   const { commit } = await git.readCommit({ fs, dir, gitdir, oid: commitOid })
@@ -160,8 +221,13 @@ const buildRemoteTree = async (fs, dir, gitdir, ref) => {
   return walk(rootTree, '')
 }
 
-const buildBlobIndex = async (fs, dir, gitdir, ref) => {
-  const commitOid = await git.resolveRef({ fs, dir, gitdir, ref })
+const buildBlobIndex = async (fs, dir, gitdir, refOrOid) => {
+  if (!refOrOid) {
+    return new Map()
+  }
+  const commitOid = refOrOid.includes('/')
+    ? await git.resolveRef({ fs, dir, gitdir, ref: refOrOid })
+    : refOrOid
   const { commit } = await git.readCommit({ fs, dir, gitdir, oid: commitOid })
   const rootTree = await git.readTree({ fs, dir, gitdir, oid: commit.tree })
   const index = new Map()
@@ -180,6 +246,45 @@ const buildBlobIndex = async (fs, dir, gitdir, ref) => {
 
   await walk(rootTree, '')
   return index
+}
+
+const findMergeBase = async (fs, dir, gitdir, baseOid, compareOid) => {
+  if (!baseOid || !compareOid) {
+    return null
+  }
+  if (baseOid === compareOid) {
+    return baseOid
+  }
+  const baseAncestors = new Set()
+  const baseQueue = [baseOid]
+  while (baseQueue.length > 0) {
+    const oid = baseQueue.shift()
+    if (baseAncestors.has(oid)) {
+      continue
+    }
+    baseAncestors.add(oid)
+    const { commit } = await git.readCommit({ fs, dir, gitdir, oid })
+    if (commit.parent?.length) {
+      baseQueue.push(...commit.parent)
+    }
+  }
+  const compareQueue = [compareOid]
+  const seenCompare = new Set()
+  while (compareQueue.length > 0) {
+    const oid = compareQueue.shift()
+    if (seenCompare.has(oid)) {
+      continue
+    }
+    if (baseAncestors.has(oid)) {
+      return oid
+    }
+    seenCompare.add(oid)
+    const { commit } = await git.readCommit({ fs, dir, gitdir, oid })
+    if (commit.parent?.length) {
+      compareQueue.push(...commit.parent)
+    }
+  }
+  return null
 }
 
 const readBlobByOid = async (fs, dir, gitdir, oid) => {
@@ -209,8 +314,11 @@ const dedupeCommits = (commits) => {
 }
 
 const computeCompareData = async (fs, dir, gitdir, baseRef, compareRef) => {
-  const baseIndex = await buildBlobIndex(fs, dir, gitdir, baseRef)
-  const targetIndex = await buildBlobIndex(fs, dir, gitdir, compareRef)
+  const baseOid = await git.resolveRef({ fs, dir, gitdir, ref: baseRef })
+  const compareOid = await git.resolveRef({ fs, dir, gitdir, ref: compareRef })
+  const mergeBaseOid = await findMergeBase(fs, dir, gitdir, baseOid, compareOid)
+  const baseIndex = await buildBlobIndex(fs, dir, gitdir, mergeBaseOid || baseOid)
+  const targetIndex = await buildBlobIndex(fs, dir, gitdir, compareOid)
   const paths = new Set([...baseIndex.keys(), ...targetIndex.keys()])
   const diffs = []
   for (const path of paths) {
@@ -288,11 +396,14 @@ function RemoteRepoModal({
     mergeStatus: null,
     conflictFiles: [],
     mergeMessage: null,
+    mergeRelation: null,
   })
   const [mrAction, setMrAction] = useState(null)
   const [deleteBranchOnMerge, setDeleteBranchOnMerge] = useState(false)
   const [mrMenuOpen, setMrMenuOpen] = useState(false)
   const [mrTitle, setMrTitle] = useState('')
+  const [conflictStrategy, setConflictStrategy] = useState('merge')
+  const mergeRequestsLoadedRef = useRef(false)
 
   useEffect(() => {
     setAddress(`${BASE_URL}${currentPath}`)
@@ -362,6 +473,24 @@ function RemoteRepoModal({
       cancelled = true
     }
   }, [fs, isOpen, pfs, refreshKey])
+
+  useEffect(() => {
+    if (!isOpen || mergeRequestsLoadedRef.current) {
+      return
+    }
+    const stored = window.__eduGitMergeRequests
+    if (Array.isArray(stored) && stored.length > 0) {
+      setMergeRequests(stored)
+      mergeRequestsLoadedRef.current = true
+    }
+  }, [isOpen])
+
+  useEffect(() => {
+    if (!isOpen) {
+      return
+    }
+    window.__eduGitMergeRequests = mergeRequests
+  }, [isOpen, mergeRequests])
 
   useEffect(() => {
     let cancelled = false
@@ -486,6 +615,15 @@ function RemoteRepoModal({
       ),
     [compareBase, compareTarget, mergeRequests]
   )
+  const isMrPairInvalid = (baseBranch, compareBranch) => {
+    if (!baseBranch || !compareBranch) {
+      return true
+    }
+    if (baseBranch === compareBranch) {
+      return true
+    }
+    return isBranchPairTaken(mergeRequests, baseBranch, compareBranch, activeMr?.id)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -521,6 +659,7 @@ function RemoteRepoModal({
             mergeStatus: activeMr.mergeStatus || activeMr.status,
             conflictFiles: activeMr.conflictFiles || [],
             mergeMessage: activeMr.mergeMessage || null,
+            mergeRelation: activeMr.mergeRelation || null,
           })
         }
         return
@@ -539,6 +678,34 @@ function RemoteRepoModal({
           gitdir,
           ref: activeMr.compare,
         })
+        let mergeRelation = null
+        if (baseOid && compareOid) {
+          if (baseOid === compareOid) {
+            mergeRelation = 'up-to-date'
+          } else {
+            const compareDescendsBase = await git.isDescendent({
+              fs,
+              dir: REMOTE_PATH,
+              gitdir,
+              oid: compareOid,
+              ancestor: baseOid,
+            })
+            const baseDescendsCompare = await git.isDescendent({
+              fs,
+              dir: REMOTE_PATH,
+              gitdir,
+              oid: baseOid,
+              ancestor: compareOid,
+            })
+            if (compareDescendsBase) {
+              mergeRelation = 'ahead'
+            } else if (baseDescendsCompare) {
+              mergeRelation = 'behind'
+            } else {
+              mergeRelation = 'diverged'
+            }
+          }
+        }
         if (
           activeMr.commits &&
           activeMr.diffs &&
@@ -558,6 +725,7 @@ function RemoteRepoModal({
               mergeStatus: activeMr.mergeStatus,
               conflictFiles: activeMr.conflictFiles || [],
               mergeMessage: activeMr.mergeMessage || null,
+              mergeRelation: activeMr.mergeRelation || mergeRelation,
             })
           }
           return
@@ -592,6 +760,7 @@ function RemoteRepoModal({
             mergeStatus: mergeability.status,
             conflictFiles: mergeability.conflictFiles || [],
             mergeMessage: mergeability.message || null,
+            mergeRelation,
           })
           setMergeRequests((prev) =>
             prev.map((mr) =>
@@ -606,6 +775,7 @@ function RemoteRepoModal({
                     mergeStatus: mergeability.status,
                     conflictFiles: mergeability.conflictFiles || [],
                     mergeMessage: mergeability.message || null,
+                    mergeRelation,
                   }
                 : mr
             )
@@ -624,6 +794,7 @@ function RemoteRepoModal({
             mergeStatus: 'error',
             conflictFiles: [],
             mergeMessage: null,
+            mergeRelation: null,
           })
         }
       }
@@ -1277,7 +1448,14 @@ function RemoteRepoModal({
                           <span>
                             {mr.compare} → {mr.base}
                           </span>
-                          <span className="remote-repo-modal__mr-status">{mr.status}</span>
+                          <span className="remote-repo-modal__mr-status">
+                            {mr.status}
+                            {mr.mergeStatus === 'conflict' ? (
+                              <span className="remote-repo-modal__mr-chip remote-repo-modal__mr-chip--conflict remote-repo-modal__mr-chip--inline">
+                                Conflict
+                              </span>
+                            ) : null}
+                          </span>
                         </button>
                       ))}
                   </div>
@@ -1291,6 +1469,11 @@ function RemoteRepoModal({
                     <h2>{activeMr.title}</h2>
                     {activeMr.status === 'merged' ? (
                       <span className="remote-repo-modal__mr-chip">Merged</span>
+                    ) : null}
+                    {mrDetail.mergeStatus === 'conflict' ? (
+                      <span className="remote-repo-modal__mr-chip remote-repo-modal__mr-chip--conflict">
+                        Conflict
+                      </span>
                     ) : null}
                   </div>
                   {activeMr.status === 'open' ? (
@@ -1477,8 +1660,107 @@ function RemoteRepoModal({
                   </div>
                 ) : null}
                 <div className="remote-repo-modal__mr-summary">
-                  {activeMr.base} ← {activeMr.compare}
+                  <div className="remote-repo-modal__mr-summary-row">
+                    <label>
+                      <span>Base</span>
+                      <select
+                        className="remote-repo-modal__mr-summary-select"
+                        value={activeMr.base}
+                        disabled={activeMr.status !== 'open'}
+                        onChange={(event) => {
+                          const nextBase = event.target.value
+                          if (isMrPairInvalid(nextBase, activeMr.compare)) {
+                            return
+                          }
+                          setMergeRequests((prev) =>
+                            prev.map((mr) =>
+                              mr.id === activeMr.id
+                                ? {
+                                    ...mr,
+                                    base: nextBase,
+                                    commits: [],
+                                    diffs: [],
+                                    canMerge: false,
+                                    baseOid: null,
+                                    compareOid: null,
+                                    mergeStatus: null,
+                                    conflictFiles: [],
+                                    mergeMessage: null,
+                                    mergeRelation: null,
+                                  }
+                                : mr
+                            )
+                          )
+                        }}
+                      >
+                        {remoteState.branches.map((branch) => (
+                          <option
+                            key={`mr-base-${branch}`}
+                            value={branch}
+                            disabled={isMrPairInvalid(branch, activeMr.compare)}
+                          >
+                            {branch}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <span className="remote-repo-modal__mr-summary-arrow">←</span>
+                    <label>
+                      <span>Compare</span>
+                      <select
+                        className="remote-repo-modal__mr-summary-select"
+                        value={activeMr.compare}
+                        disabled={activeMr.status !== 'open'}
+                        onChange={(event) => {
+                          const nextCompare = event.target.value
+                          if (isMrPairInvalid(activeMr.base, nextCompare)) {
+                            return
+                          }
+                          setMergeRequests((prev) =>
+                            prev.map((mr) =>
+                              mr.id === activeMr.id
+                                ? {
+                                    ...mr,
+                                    compare: nextCompare,
+                                    commits: [],
+                                    diffs: [],
+                                    canMerge: false,
+                                    baseOid: null,
+                                    compareOid: null,
+                                    mergeStatus: null,
+                                    conflictFiles: [],
+                                    mergeMessage: null,
+                                    mergeRelation: null,
+                                  }
+                                : mr
+                            )
+                          )
+                        }}
+                      >
+                        {remoteState.branches.map((branch) => (
+                          <option
+                            key={`mr-compare-${branch}`}
+                            value={branch}
+                            disabled={isMrPairInvalid(activeMr.base, branch)}
+                          >
+                            {branch}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
                 </div>
+                {mrDetail.mergeRelation && mrDetail.mergeStatus !== 'conflict' ? (
+                  <div className="remote-repo-modal__mr-meta">
+                    {mrDetail.mergeRelation === 'ahead'
+                      ? 'Branch is ahead of base.'
+                      : mrDetail.mergeRelation === 'behind'
+                        ? 'Branch is behind base.'
+                        : mrDetail.mergeRelation === 'up-to-date'
+                          ? 'Branch is up to date with base.'
+                          : 'Branch has diverged from base.'}
+                  </div>
+                ) : null}
                 {mrDetail.mergeStatus === 'conflict' ? (
                   <div className="remote-repo-modal__mr-warning">
                     <div className="remote-repo-modal__mr-warning-title">
@@ -1487,17 +1769,44 @@ function RemoteRepoModal({
                         ? ` Files: ${mrDetail.conflictFiles.join(', ')}`
                         : ''}
                     </div>
-                    <div className="remote-repo-modal__mr-help-title">
-                      Resolve locally, then push the fix
+                    <div className="remote-repo-modal__mr-help-row">
+                      <div className="remote-repo-modal__mr-help-title">
+                        Resolve locally, then push the fix
+                      </div>
+                      <label className="remote-repo-modal__mr-help-select">
+                        <span>Strategy</span>
+                        <select
+                          value={conflictStrategy}
+                          onChange={(event) => setConflictStrategy(event.target.value)}
+                        >
+                          {CONFLICT_STRATEGIES.map((strategy) => (
+                            <option key={strategy.id} value={strategy.id}>
+                              {strategy.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                     </div>
+                    <p className="remote-repo-modal__mr-help-text">
+                      {buildConflictExplanation(
+                        conflictStrategy,
+                        activeMr.base,
+                        activeMr.compare
+                      )}
+                    </p>
                     <pre>
-                      git checkout {activeMr.compare}
-                      {'\n'}git pull origin {activeMr.base}
-                      {'\n'}# fix conflicts in your editor
-                      {'\n'}git add .
-                      {'\n'}git commit -m "Resolve conflicts"
-                      {'\n'}git push origin {activeMr.compare}
+                      {buildConflictCommands(
+                        conflictStrategy,
+                        activeMr.base,
+                        activeMr.compare
+                      ).join('\n')}
                     </pre>
+                    {conflictStrategy === 'cherry-pick' ? (
+                      <p className="remote-repo-modal__mr-help-note">
+                        After pushing, update the branches above to{' '}
+                        {`${activeMr.base} ← ${activeMr.compare}_resolved`}.
+                      </p>
+                    ) : null}
                   </div>
                 ) : mrDetail.mergeStatus === 'already-merged' ? (
                   <div className="remote-repo-modal__mr-warning">

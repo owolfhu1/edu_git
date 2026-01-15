@@ -1,42 +1,58 @@
 Git Cheat Sheet
 
 Setup
-  git init
+  git init                     Initialize a new Git repository.
 
 Status + Log
-  git status
-  git diff
-  git diff --staged
-  git log
+  git status                   Show current branch, staged/unstaged changes.
+  git diff                     Show unstaged changes.
+  git diff --staged            Show staged changes.
+  git log                      Show commit history.
+  git log --oneline            Show a compact commit history.
 
 Staging + Commit
-  git add <file>
-  git add .
-  git commit -m "message"
+  git add <file>               Stage a file.
+  git add .                    Stage all changes.
+  git commit -m "message"      Create a commit with a message.
 
 Branches
-  git branch
-  git branch -a
-  git branch -d <name>
-  git checkout -b <name>
-  git checkout <name>
-  git checkout -- <file>
-  git switch -c <name>
-  git switch <name>
+  git branch                   List local branches.
+  git branch -a                List local and remote branches.
+  git branch -r                List remote-tracking branches.
+  git branch -d <name>         Delete a local branch if fully merged.
+  git branch -D <name>         Force-delete a local branch.
+  git checkout -b <name>       Create and switch to a new branch.
+  git checkout <name>          Switch branches.
+  git checkout <commit>        Check out a specific commit (detached HEAD).
+  git checkout HEAD~1          Check out the parent commit.
+  git checkout HEAD^           Check out the parent commit (first parent for merges).
+  git checkout -- <file>       Restore a file from HEAD (legacy syntax).
+  git switch -c <name>         Create and switch to a new branch.
+  git switch <name>            Switch branches.
 
 Undo
-  git restore <file>
-  git restore --staged <file>
-  git reset HEAD <file>
-  git reset --hard <commit>
+  git restore <file>           Restore a file from the last commit.
+  git restore --staged <file>  Unstage a file.
+  git reset HEAD <file>        Unstage a file (legacy style).
+  git reset --hard <commit>    Reset working tree and index to a commit.
+  git merge --abort            Abort a merge in progress.
+  git cherry-pick --abort      Abort a cherry-pick in progress.
+  git cherry-pick --continue   Continue a cherry-pick after conflicts.
+  git rebase --abort           Abort a rebase in progress.
 
 File Ops
-  git rm <file>
-  git mv <source> <dest>
+  git rm <file>                Remove a file and stage the deletion.
+  git mv <source> <dest>       Move or rename a file and stage it.
 
 Remotes
-  git remote add origin <url>
-  git remote -v
-  git fetch origin
-  git pull origin <branch>
-  git push -u origin <branch>
+  git remote add origin <url>  Add a remote named origin.
+  git remote -v                List remotes and their URLs.
+  git fetch origin             Fetch remote changes.
+  git pull origin <branch>     Pull and merge from a remote branch.
+  git push -u origin <branch>  Push a branch and set upstream.
+
+Merging + Rebase
+  git merge <branch>           Merge a branch into the current branch.
+  git merge <remote>/<branch>  Merge a remote branch into the current branch.
+  git cherry-pick <commit>     Apply a single commit onto the current branch.
+  git rebase <branch>          Rebase current branch onto another branch.

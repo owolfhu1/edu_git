@@ -1,0 +1,24 @@
+Git Info
+
+Git is a version control system that helps you track changes to files over time.
+It lets you save snapshots (commits), create branches for experiments, and merge
+those changes back together when you are ready.
+
+Why it matters:
+- Track history: See what changed and when.
+- Work safely: Make changes without losing your working version.
+- Collaborate: Share work with others and resolve differences.
+
+Key ideas:
+- Repository: The project folder tracked by Git.
+- Commit: A saved snapshot of your files.
+- Branch: A separate line of work.
+- Merge: Combine changes from different branches.
+- Remote: A shared copy of the repo used for collaboration.
+
+Common use cases:
+- Software projects: track code changes and ship features safely.
+- Writing and documentation: compare drafts and keep a clean revision history.
+- Design files: review iterations and roll back when needed.
+- Research notes: capture experiment changes and preserve context.
+- Data and configuration: track changes to datasets, scripts, or settings.

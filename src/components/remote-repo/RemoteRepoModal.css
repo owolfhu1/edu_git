@@ -485,6 +485,49 @@
   margin-bottom: 1.2rem;
 }
 
+.remote-repo-modal__mr-summary-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.remote-repo-modal__mr-summary-row label {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.remote-repo-modal__mr-summary-select {
+  min-width: 150px;
+  padding: 0.35rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(15, 23, 42, 0.7);
+  color: #e2e8f0;
+  font-size: 0.85rem;
+  font-family: "Space Mono", monospace;
+}
+
+.remote-repo-modal__mr-summary-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.remote-repo-modal__mr-summary-arrow {
+  font-size: 0.85rem;
+  color: #94a3b8;
+  padding-top: 1rem;
+}
+
+.remote-repo-modal__mr-meta {
+  margin: -0.7rem 0 1rem;
+  font-size: 0.85rem;
+  color: #cbd5f5;
+}
+
 .remote-repo-modal__mr-warning {
   margin: -0.7rem 0 1.2rem;
   padding: 0.6rem 0.8rem;
@@ -514,6 +557,49 @@
   white-space: pre-wrap;
 }
 
+.remote-repo-modal__mr-help-note {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  color: #fee2e2;
+}
+
+.remote-repo-modal__mr-help-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+  margin-top: 0.6rem;
+}
+
+.remote-repo-modal__mr-help-row .remote-repo-modal__mr-help-title {
+  margin-top: 0;
+}
+
+.remote-repo-modal__mr-help-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: #fee2e2;
+}
+
+.remote-repo-modal__mr-help-select select {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  border-radius: 8px;
+  color: #fee2e2;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+}
+
+.remote-repo-modal__mr-help-text {
+  margin: 0.45rem 0 0;
+  color: #fecaca;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
 .remote-repo-modal__mr-section {
   margin-bottom: 1.5rem;
 }
@@ -539,6 +625,15 @@
   font-weight: 600;
   position: relative;
   top: -1px;
+}
+
+.remote-repo-modal__mr-chip--conflict {
+  background: rgba(251, 146, 60, 0.2);
+  color: #fdba74;
+}
+
+.remote-repo-modal__mr-chip--inline {
+  margin-left: 0.4rem;
 }
 
 .remote-repo-modal__mr-button {
