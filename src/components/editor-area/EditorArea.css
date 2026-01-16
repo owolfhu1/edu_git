@@ -2,10 +2,12 @@
   display: flex;
   flex-direction: column;
   flex: 1;
-  background: #f8fafc;
+  background: #0f172a;
   border-radius: 18px;
   overflow: hidden;
-  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.15);
+  border: 2px solid var(--panel-border);
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.15),
+    inset 0 0 0 2px var(--panel-border);
   min-height: 0;
 }
 
@@ -92,7 +94,7 @@
 .editor-area__content {
   flex: 1;
   padding: 1.25rem;
-  background: #ffffff;
+  background: #e1e8f2;
   overflow: hidden;
 }
 

@@ -51,4 +51,24 @@ describe('file structure interactions', () => {
       'exist'
     )
   })
+
+  it('creates folders and files from the UI modal', () => {
+    cy.get('[data-cy=file-structure-new]').click()
+    cy.get('[data-cy=file-structure-new-menu]').should('be.visible')
+    cy.get('[data-cy=file-structure-new-folder]').click()
+    cy.get('[data-cy=file-structure-create-input]').type('ui-folder')
+    cy.get('[data-cy=file-structure-create-confirm]').click()
+    cy.get('[data-cy=file-structure-folder][data-path="/ui-folder"]').should(
+      'exist'
+    )
+
+    cy.get('[data-cy=file-structure-new]').click()
+    cy.get('[data-cy=file-structure-new-file]').click()
+    cy.get('[data-cy=file-structure-create-input]').type('ui-note')
+    cy.get('[data-cy=file-structure-create-confirm]').click()
+    cy.get('[data-cy=file-structure-file][data-path="/ui-note.txt"]').should(
+      'exist'
+    )
+    cy.get('[data-cy=editor-tab][data-path="/ui-note.txt"]').should('exist')
+  })
 })

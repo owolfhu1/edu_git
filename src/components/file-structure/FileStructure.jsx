@@ -1,4 +1,5 @@
 import { useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import './FileStructure.css'
 import { FileSystemContext } from '../../store/FileSystemContext'
 import { FileIcon, FolderClosedIcon, FolderOpenIcon } from '../icons/FileIcons'
@@ -47,6 +48,7 @@ function FileStructure() {
   const menuRef = useRef(null)
   const newMenuRef = useRef(null)
   const deleteModalRef = useRef(null)
+  const canPortal = typeof document !== 'undefined'
 
   const startCreate = (type, parentId = null) => {
     setCreateState({
@@ -256,6 +258,9 @@ function FileStructure() {
     if (!name) {
       return ''
     }
+    if (name.startsWith('.')) {
+      return name
+    }
     if (name.toLowerCase().endsWith('.txt')) {
       return name.slice(0, -4)
     }
@@ -405,171 +410,188 @@ function FileStructure() {
           </button>
         </div>
       )}
-      {createState.isOpen && (
-        <div className="file-structure__modal-backdrop">
-          <div className="file-structure__modal">
-            <h3 className="file-structure__modal-title">
-              {createState.type === 'folder' ? 'New Folder' : 'New File'}
-            </h3>
-            <label className="file-structure__modal-label" htmlFor="create-name">
-              Name
-            </label>
-            <input
-              id="create-name"
-              className="file-structure__modal-input"
-              type="text"
-              value={createState.name}
-              placeholder={createState.type === 'folder' ? 'assets' : 'notes'}
-              onChange={(event) =>
-                setCreateState((prev) => ({
-                  ...prev,
-                  name: event.target.value,
-                  error: '',
-                }))
-              }
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  handleCreateConfirm()
-                }
-              }}
-            />
-            {createState.error && (
-              <p className="file-structure__modal-error">{createState.error}</p>
-            )}
-            <div className="file-structure__modal-actions">
-              <button
-                type="button"
-                className="file-structure__modal-button"
-                onClick={() =>
-                  setCreateState((prev) => ({
-                    ...prev,
-                    isOpen: false,
-                    name: '',
-                    error: '',
-                  }))
-                }
+      {canPortal && createState.isOpen
+        ? createPortal(
+            <div className="file-structure__modal-backdrop">
+              <div className="file-structure__modal">
+                <h3 className="file-structure__modal-title">
+                  {createState.type === 'folder' ? 'New Folder' : 'New File'}
+                </h3>
+                <label className="file-structure__modal-label" htmlFor="create-name">
+                  Name
+                </label>
+                <input
+                  id="create-name"
+                  className="file-structure__modal-input"
+                  data-cy="file-structure-create-input"
+                  type="text"
+                  value={createState.name}
+                  placeholder={createState.type === 'folder' ? 'assets' : 'notes'}
+                  onChange={(event) =>
+                    setCreateState((prev) => ({
+                      ...prev,
+                      name: event.target.value,
+                      error: '',
+                    }))
+                  }
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      handleCreateConfirm()
+                    }
+                  }}
+                />
+                {createState.error && (
+                  <p className="file-structure__modal-error">{createState.error}</p>
+                )}
+                <div className="file-structure__modal-actions">
+                  <button
+                    type="button"
+                    className="file-structure__modal-button"
+                    data-cy="file-structure-create-cancel"
+                    onClick={() =>
+                      setCreateState((prev) => ({
+                        ...prev,
+                        isOpen: false,
+                        name: '',
+                        error: '',
+                      }))
+                    }
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="file-structure__modal-button file-structure__modal-button--primary"
+                    data-cy="file-structure-create-confirm"
+                    onClick={handleCreateConfirm}
+                  >
+                    Create
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
+      {canPortal && deleteState.isOpen
+        ? createPortal(
+            <div className="file-structure__modal-backdrop">
+              <div
+                className="file-structure__modal"
+                ref={deleteModalRef}
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    handleDeleteConfirm()
+                  }
+                }}
               >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="file-structure__modal-button file-structure__modal-button--primary"
-                onClick={handleCreateConfirm}
-              >
-                Create
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {deleteState.isOpen && (
-        <div className="file-structure__modal-backdrop">
-          <div
-            className="file-structure__modal"
-            ref={deleteModalRef}
-            tabIndex={0}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                handleDeleteConfirm()
-              }
-            }}
-          >
-            <h3 className="file-structure__modal-title">Delete</h3>
-            <p className="file-structure__modal-text">
-              {deleteState.targetType === 'folder'
-                ? 'Delete this folder and its contents?'
-                : 'Delete this file?'}
-              {deleteState.targetPath ? ` (${deleteState.targetPath})` : ''}
-            </p>
-            <div className="file-structure__modal-actions">
-              <button
-                type="button"
-                className="file-structure__modal-button"
-                onClick={() =>
-                  setDeleteState({
-                    isOpen: false,
-                    targetId: null,
-                    targetType: null,
-                    targetPath: '',
-                  })
-                }
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="file-structure__modal-button file-structure__modal-button--danger"
-                onClick={handleDeleteConfirm}
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {renameState.isOpen && (
-        <div className="file-structure__modal-backdrop">
-          <div className="file-structure__modal">
-            <h3 className="file-structure__modal-title">
-              Rename {renameState.targetType === 'folder' ? 'Folder' : 'File'}
-            </h3>
-            {renameState.targetPath && (
-              <p className="file-structure__modal-text">
-                {renameState.targetPath}
-              </p>
-            )}
-            <label className="file-structure__modal-label" htmlFor="rename-name">
-              New name
-            </label>
-            <input
-              id="rename-name"
-              className="file-structure__modal-input"
-              type="text"
-              value={renameState.name}
-              onChange={(event) =>
-                setRenameState((prev) => ({
-                  ...prev,
-                  name: event.target.value,
-                  error: '',
-                }))
-              }
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  handleRenameConfirm()
-                }
-              }}
-            />
-            {renameState.error && (
-              <p className="file-structure__modal-error">{renameState.error}</p>
-            )}
-            <div className="file-structure__modal-actions">
-              <button
-                type="button"
-                className="file-structure__modal-button"
-                onClick={() =>
-                  setRenameState({
-                    isOpen: false,
-                    targetId: null,
-                    targetType: null,
-                    name: '',
-                    error: '',
-                    targetPath: '',
-                  })
-                }
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="file-structure__modal-button file-structure__modal-button--primary"
-                onClick={handleRenameConfirm}
-              >
-                Rename
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+                <h3 className="file-structure__modal-title">Delete</h3>
+                <p className="file-structure__modal-text">
+                  {deleteState.targetType === 'folder'
+                    ? 'Delete this folder and its contents?'
+                    : 'Delete this file?'}
+                  {deleteState.targetPath ? ` (${deleteState.targetPath})` : ''}
+                </p>
+                <div className="file-structure__modal-actions">
+                  <button
+                    type="button"
+                    className="file-structure__modal-button"
+                    data-cy="file-structure-delete-cancel"
+                    onClick={() =>
+                      setDeleteState({
+                        isOpen: false,
+                        targetId: null,
+                        targetType: null,
+                        targetPath: '',
+                      })
+                    }
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="file-structure__modal-button file-structure__modal-button--danger"
+                    data-cy="file-structure-delete-confirm"
+                    onClick={handleDeleteConfirm}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
+      {canPortal && renameState.isOpen
+        ? createPortal(
+            <div className="file-structure__modal-backdrop">
+              <div className="file-structure__modal">
+                <h3 className="file-structure__modal-title">
+                  Rename {renameState.targetType === 'folder' ? 'Folder' : 'File'}
+                </h3>
+                {renameState.targetPath && (
+                  <p className="file-structure__modal-text">
+                    {renameState.targetPath}
+                  </p>
+                )}
+                <label className="file-structure__modal-label" htmlFor="rename-name">
+                  New name
+                </label>
+                <input
+                  id="rename-name"
+                  className="file-structure__modal-input"
+                  data-cy="file-structure-rename-input"
+                  type="text"
+                  value={renameState.name}
+                  onChange={(event) =>
+                    setRenameState((prev) => ({
+                      ...prev,
+                      name: event.target.value,
+                      error: '',
+                    }))
+                  }
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      handleRenameConfirm()
+                    }
+                  }}
+                />
+                {renameState.error && (
+                  <p className="file-structure__modal-error">{renameState.error}</p>
+                )}
+                <div className="file-structure__modal-actions">
+                  <button
+                    type="button"
+                    className="file-structure__modal-button"
+                    data-cy="file-structure-rename-cancel"
+                    onClick={() =>
+                      setRenameState({
+                        isOpen: false,
+                        targetId: null,
+                        targetType: null,
+                        name: '',
+                        error: '',
+                        targetPath: '',
+                      })
+                    }
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="file-structure__modal-button file-structure__modal-button--primary"
+                    data-cy="file-structure-rename-confirm"
+                    onClick={handleRenameConfirm}
+                  >
+                    Rename
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
     </div>
   )
 }

@@ -28,7 +28,9 @@ const coreCommands = {
       appendOutput([`ls: cannot access '${targetArg || '.'}': No such directory`])
       return
     }
-    const visibleEntries = showAll ? entries : entries.filter((entry) => !entry.startsWith('.'))
+    const visibleEntries = showAll
+      ? entries
+      : entries.filter((entry) => !entry.startsWith('.') || entry === '.gitignore')
     const listing = visibleEntries.join('  ')
     appendOutput([listing || ''])
   },

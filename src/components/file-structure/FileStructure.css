@@ -204,7 +204,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 30;
+  z-index: 140;
 }
 
 .file-structure__modal {

@@ -21,6 +21,12 @@ const normalizeFileName = (name) => {
   if (!trimmed) {
     return ''
   }
+  if (trimmed === 'gitignore' || trimmed === '.gitignore') {
+    return '.gitignore'
+  }
+  if (trimmed.startsWith('.')) {
+    return trimmed
+  }
   let base = trimmed
   if (base.toLowerCase().endsWith('.txt')) {
     base = base.slice(0, -4)

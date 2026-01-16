@@ -1,18 +1,46 @@
+.app-shell,
+:root {
+  --panel-border: rgba(94, 234, 212, 0.2);
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: minmax(220px, 280px) 1fr;
   height: 100vh;
-  background: radial-gradient(circle at top left, #f1f5f9, #cbd5f5 55%, #e2e8f0);
+  background: radial-gradient(circle at top, #0f172a, #1f2a44 55%, #0b1224);
   gap: 1.5rem;
   padding: 1.5rem;
   box-sizing: border-box;
+  position: relative;
+  overflow: hidden;
+}
+
+.app-shell::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+      180deg,
+      rgba(148, 163, 184, 0.08) 0px,
+      rgba(148, 163, 184, 0.08) 1px,
+      transparent 1px,
+      transparent 5px
+    ),
+    radial-gradient(circle at 20% 20%, rgba(56, 189, 248, 0.12), transparent 55%),
+    radial-gradient(circle at 80% 10%, rgba(14, 165, 233, 0.1), transparent 45%);
+  opacity: 0.35;
+  pointer-events: none;
+  z-index: 0;
 }
 
 .app-sidebar {
   background: #0f172a;
   border-radius: 22px;
   overflow: hidden;
+  border: 2px solid var(--panel-border);
   box-shadow: 0 20px 40px rgba(15, 23, 42, 0.25);
+  position: relative;
+  z-index: 1;
 }
 
 .app-main {
@@ -20,6 +48,8 @@
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+  position: relative;
+  z-index: 1;
 }
 
 @media (max-width: 900px) {
