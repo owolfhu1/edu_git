@@ -41,15 +41,6 @@ const editFile = (path, line) => {
     .type(`{moveToEnd}{enter}${line}`, { force: true })
 }
 
-const replaceFile = (path, content) => {
-  openEditorFile(path)
-  cy.get('[data-cy=editor-textarea]')
-    .scrollIntoView()
-    .click({ force: true })
-    .type('{selectall}{backspace}', { force: true })
-    .type(content, { force: true })
-}
-
 const assertConflictMarkers = () => {
   cy.get('[data-cy=editor-textarea]')
     .invoke('text')
@@ -98,11 +89,10 @@ describe('conflict marker workflows', () => {
 
   it('shows conflict markers for rebase conflicts (src/components/App.txt)', () => {
     runCommand('git checkout -b conflict_branch')
-    replaceFile('/src/components/App.txt', 'Branch app line')
-    runCommand('git add /src/components/App.txt')
-    runCommand('git commit -m "branch conflict change"')
+    runCommand('git rm /src/components/App.txt')
+    runCommand('git commit -m "branch conflict delete"')
     runCommand('git checkout main')
-    replaceFile('/src/components/App.txt', 'Base app line')
+    editFile('/src/components/App.txt', 'Base app line')
     runCommand('git add /src/components/App.txt')
     runCommand('git commit -m "base conflict change"')
     runCommand('git checkout conflict_branch')
@@ -113,11 +103,10 @@ describe('conflict marker workflows', () => {
 
   it('shows conflict markers for rebase conflicts (docs/setup.txt)', () => {
     runCommand('git checkout -b conflict_branch')
-    replaceFile('/docs/setup.txt', 'Branch setup line')
-    runCommand('git add /docs/setup.txt')
-    runCommand('git commit -m "branch conflict change"')
+    runCommand('git rm /docs/setup.txt')
+    runCommand('git commit -m "branch conflict delete"')
     runCommand('git checkout main')
-    replaceFile('/docs/setup.txt', 'Base setup line')
+    editFile('/docs/setup.txt', 'Base setup line')
     runCommand('git add /docs/setup.txt')
     runCommand('git commit -m "base conflict change"')
     runCommand('git checkout conflict_branch')
