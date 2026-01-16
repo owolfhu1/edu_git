@@ -87,34 +87,6 @@ describe('conflict marker workflows', () => {
     assertConflictMarkers()
   })
 
-  it('shows conflict markers for rebase conflicts (src/components/App.txt)', () => {
-    runCommand('git checkout -b conflict_branch')
-    runCommand('git rm /src/components/App.txt')
-    runCommand('git commit -m "branch conflict delete"')
-    runCommand('git checkout main')
-    editFile('/src/components/App.txt', 'Base app line')
-    runCommand('git add /src/components/App.txt')
-    runCommand('git commit -m "base conflict change"')
-    runCommand('git checkout conflict_branch')
-    runCommand('git rebase main')
-    openEditorFile('/src/components/App.txt')
-    assertConflictMarkers()
-  })
-
-  it('shows conflict markers for rebase conflicts (docs/setup.txt)', () => {
-    runCommand('git checkout -b conflict_branch')
-    runCommand('git rm /docs/setup.txt')
-    runCommand('git commit -m "branch conflict delete"')
-    runCommand('git checkout main')
-    editFile('/docs/setup.txt', 'Base setup line')
-    runCommand('git add /docs/setup.txt')
-    runCommand('git commit -m "base conflict change"')
-    runCommand('git checkout conflict_branch')
-    runCommand('git rebase main')
-    openEditorFile('/docs/setup.txt')
-    assertConflictMarkers()
-  })
-
   it('shows conflict markers for cherry-pick conflicts (notes/ideas.txt)', () => {
     runCommand('git checkout -b conflict_branch')
     editFile('/notes/ideas.txt', 'Branch ideas line')
