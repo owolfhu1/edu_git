@@ -30,6 +30,7 @@ function TerminalPane() {
   const [gitRoot, setGitRoot] = useState(null)
   const [branchName, setBranchName] = useState(null)
   const [isFocused, setIsFocused] = useState(false)
+  const [cursorPosition, setCursorPosition] = useState(0)
   const bodyRef = useRef(null)
   const inputRef = useRef(null)
 
@@ -147,6 +148,7 @@ function TerminalPane() {
     }
     setHistoryIndex(-1)
     setInput('')
+    setCursorPosition(0)
     await handleCommand(current)
   }
 
@@ -155,16 +157,30 @@ function TerminalPane() {
       event.preventDefault()
       setHistoryIndex((prev) => {
         const nextIndex = prev < 0 ? history.length - 1 : Math.max(prev - 1, 0)
-        setInput(history[nextIndex] || '')
+        const newInput = history[nextIndex] || ''
+        setInput(newInput)
+        setCursorPosition(newInput.length)
         return nextIndex
       })
-    }
-    if (event.key === 'ArrowDown') {
+    } else if (event.key === 'ArrowDown') {
       event.preventDefault()
       setHistoryIndex((prev) => {
         const nextIndex = prev < 0 ? -1 : Math.min(prev + 1, history.length - 1)
-        setInput(nextIndex >= 0 ? history[nextIndex] || '' : '')
+        const newInput = nextIndex >= 0 ? history[nextIndex] || '' : ''
+        setInput(newInput)
+        setCursorPosition(newInput.length)
         return nextIndex
+      })
+    } else if (
+      event.key === 'ArrowLeft' ||
+      event.key === 'ArrowRight' ||
+      event.key === 'Home' ||
+      event.key === 'End'
+    ) {
+      requestAnimationFrame(() => {
+        if (inputRef.current) {
+          setCursorPosition(inputRef.current.selectionStart)
+        }
       })
     }
   }
@@ -191,20 +207,24 @@ function TerminalPane() {
           <span className="terminal-pane__prompt-label">{prompt}</span>
           <div
             className="terminal-pane__input-wrap"
-            style={{ '--cursor-offset': `${input.length}ch` }}
+            style={{ '--cursor-offset': `${cursorPosition}ch` }}
           >
             <input
               ref={inputRef}
               className="terminal-pane__input"
               data-cy="terminal-input"
               value={input}
-              onChange={(event) => setInput(event.target.value)}
+              onChange={(event) => {
+                setInput(event.target.value)
+                setCursorPosition(event.target.selectionStart)
+              }}
               onKeyDown={handleKeyDown}
               spellCheck="false"
               autoCapitalize="off"
               autoComplete="off"
               onFocus={() => setIsFocused(true)}
               onBlur={() => setIsFocused(false)}
+              onClick={(event) => setCursorPosition(event.target.selectionStart)}
             />
             <span
               className={`terminal-pane__cursor ${
