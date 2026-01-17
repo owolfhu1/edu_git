@@ -239,6 +239,7 @@ function FileSystemProvider({ children }) {
     fsRef.current = new LightningFS('edu-git')
   }
   const pfs = fsRef.current.promises
+  const fsTaskRef = useRef(Promise.resolve())
   const [tree, setTree] = useState([])
   const [selectedFilePath, setSelectedFilePath] = useState('/src/README.txt')
   const [selectedFile, setSelectedFile] = useState(null)
@@ -257,6 +258,12 @@ function FileSystemProvider({ children }) {
     remoteDemoInfoContent,
     remoteDemoReadmeContent,
   ])
+
+  const enqueueFsTask = useCallback((task) => {
+    const nextTask = fsTaskRef.current.then(task, task)
+    fsTaskRef.current = nextTask.catch(() => {})
+    return nextTask
+  }, [])
 
   const statPath = useCallback(
     async (path) => {
@@ -388,15 +395,17 @@ function FileSystemProvider({ children }) {
 
   useEffect(() => {
     const bootstrap = async () => {
-      const snapshotString = await createSnapshotFromSeed(pfs, seedDefault, {
-        selectedFilePath: '/src/README.txt',
-        openFilePaths: ['/src/README.txt'],
+      await enqueueFsTask(async () => {
+        const snapshotString = await createSnapshotFromSeed(pfs, seedDefault, {
+          selectedFilePath: '/src/README.txt',
+          openFilePaths: ['/src/README.txt'],
+        })
+        await loadEnvironment(snapshotString)
+        setIsReady(true)
       })
-      await loadEnvironment(snapshotString)
-      setIsReady(true)
     }
     bootstrap()
-  }, [loadEnvironment, pfs, seedDefault])
+  }, [enqueueFsTask, loadEnvironment, pfs, seedDefault])
 
   useEffect(() => {
     const loadSelected = async () => {
@@ -560,11 +569,13 @@ function FileSystemProvider({ children }) {
   }
 
   const resetInstance = async () => {
-    const snapshotString = await createSnapshotFromSeed(pfs, seedDefault, {
-      selectedFilePath: '/src/README.txt',
-      openFilePaths: ['/src/README.txt'],
+    await enqueueFsTask(async () => {
+      const snapshotString = await createSnapshotFromSeed(pfs, seedDefault, {
+        selectedFilePath: '/src/README.txt',
+        openFilePaths: ['/src/README.txt'],
+      })
+      await loadEnvironment(snapshotString)
     })
-    await loadEnvironment(snapshotString)
   }
 
   const seedMockEnvironment = async () => {
@@ -777,35 +788,41 @@ function FileSystemProvider({ children }) {
   }
 
   const mockEnvironment = async () => {
-    const snapshotString = await createSnapshotFromSeed(pfs, seedMockEnvironment, {
-      selectedFilePath: '/README.txt',
-      openFilePaths: ['/README.txt'],
+    await enqueueFsTask(async () => {
+      const snapshotString = await createSnapshotFromSeed(pfs, seedMockEnvironment, {
+        selectedFilePath: '/README.txt',
+        openFilePaths: ['/README.txt'],
+      })
+      await loadEnvironment(snapshotString)
     })
-    await loadEnvironment(snapshotString)
   }
 
   const mockConflictEnvironment = async () => {
-    await clearRoot(pfs)
-    const result = await seedMockConflictEnvironment({ fs: fsRef.current, pfs })
-    await refreshTree()
-    const openPath = result?.openFilePath || '/src/utils/helpers.txt'
-    setSelectedFilePath(openPath)
-    setOpenFilePaths([openPath])
-    setResetToken((prev) => prev + 1)
+    await enqueueFsTask(async () => {
+      await clearRoot(pfs)
+      const result = await seedMockConflictEnvironment({ fs: fsRef.current, pfs })
+      await refreshTree()
+      const openPath = result?.openFilePath || '/src/utils/helpers.txt'
+      setSelectedFilePath(openPath)
+      setOpenFilePaths([openPath])
+      setResetToken((prev) => prev + 1)
+    })
   }
 
   const exportWorkspaceState = async () => {
     try {
-      const entries = await exportFileSystem(pfs, '/')
-      const mergeRequests =
-        typeof window !== 'undefined' ? window.__eduGitMergeRequests || [] : []
-      return createSnapshotString({
-        entries,
-        ui: {
-          selectedFilePath,
-          openFilePaths,
-        },
-        mergeRequests,
+      return await enqueueFsTask(async () => {
+        const entries = await exportFileSystem(pfs, '/')
+        const mergeRequests =
+          typeof window !== 'undefined' ? window.__eduGitMergeRequests || [] : []
+        return createSnapshotString({
+          entries,
+          ui: {
+            selectedFilePath,
+            openFilePaths,
+          },
+          mergeRequests,
+        })
       })
     } catch (error) {
       return null
@@ -813,7 +830,7 @@ function FileSystemProvider({ children }) {
   }
 
   const importWorkspaceState = async (snapshotString) => {
-    return loadEnvironment(snapshotString)
+    return enqueueFsTask(() => loadEnvironment(snapshotString))
   }
 
   const value = {

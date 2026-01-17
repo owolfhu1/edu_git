@@ -3,6 +3,7 @@ const runCommand = (command) => {
 }
 
 const openMockEnvironment = () => {
+  cy.get('[data-cy=workspace-menu-toggle]', { timeout: 20000 }).should('be.visible')
   cy.get('[data-cy=workspace-menu-toggle]').click()
   cy.get('[data-cy=workspace-menu-panel]').should('be.visible')
   cy.get('[data-cy=workspace-menu-mock]').click()
