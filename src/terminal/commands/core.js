@@ -9,6 +9,7 @@ const coreCommands = {
       '  ls [path]        List files in a directory',
       '  cd [path]        Change directory',
       '  cat <file>       Print a text file',
+      '  echo <text> [> file]  Print text or redirect to file',
       '  touch <file>     Create a new text file',
       '  mkdir <folder>   Create a new folder',
       '  rm [-r] <path>   Remove a file or folder',
@@ -52,6 +53,55 @@ const coreCommands = {
     }
     const contentLines = content ? content.split('\n') : ['']
     appendOutput(contentLines)
+  },
+  echo: async (args, { cwdPath, statPath, readTextFile, createFile, updateFileContent, appendOutput }) => {
+    if (args.length === 0) {
+      appendOutput([''])
+      return
+    }
+    const redirectIndex = args.findIndex((arg) => arg === '>' || arg === '>>')
+    const textParts = redirectIndex === -1 ? args : args.slice(0, redirectIndex)
+    const rawText = textParts.join(' ')
+    const text = rawText.replace(/^['"]|['"]$/g, '')
+    if (redirectIndex === -1) {
+      appendOutput([text])
+      return
+    }
+    const redirect = args[redirectIndex]
+    const targetArg = args[redirectIndex + 1]
+    if (!targetArg) {
+      appendOutput(['echo: missing file operand'])
+      return
+    }
+    const targetPath = normalizePath(targetArg, cwdPath)
+    const { dirPath, name } = splitPath(targetPath)
+    if (!name) {
+      appendOutput(['echo: missing file operand'])
+      return
+    }
+    const dirStats = await statPath(dirPath)
+    if (!dirStats || dirStats.type !== 'dir') {
+      appendOutput([`echo: cannot create file in '${dirPath}'`])
+      return
+    }
+    const existing = await readTextFile(targetPath)
+    const base = existing ?? ''
+    const needsBreak = base !== '' && !base.endsWith('\n')
+    const nextContent = redirect === '>>'
+      ? `${base}${needsBreak ? '\n' : ''}${text}\n`
+      : `${text}\n`
+    if (existing === null) {
+      const created = await createFile({
+        parentId: dirPath === '/' ? null : ensureDirPath(dirPath),
+        name,
+        content: nextContent,
+      })
+      if (!created) {
+        appendOutput([`echo: ${name}: File already exists`])
+      }
+      return
+    }
+    await updateFileContent(targetPath, nextContent)
   },
   touch: async (args, { cwdPath, statPath, createFile, appendOutput }) => {
     const targetPath = normalizePath(args[0], cwdPath)

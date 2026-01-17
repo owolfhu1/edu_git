@@ -11,13 +11,15 @@ spin up example projects.
 - React + Vite
 - lightning-fs (virtual filesystem for the browser)
 - isomorphic-git (real Git behavior in the browser)
+- Vitest + Cypress (unit + E2E testing)
 
 ## Highlights
 
 - Virtual filesystem with folders and .txt files (create, rename, delete)
 - File editor with tabs, gutter highlighting, and diff controls
 - Terminal with core shell commands and a growing set of Git commands
-- Remote Repo UI that mirrors a hosted service (overview, branches, commits, compare, MRs)
+- Remote Repo UI with a home page, repo browser, and MR workflows (compare, merge)
+- Remote actions like clone/fork/delete for simulated repositories
 
 ## Development
 
@@ -28,11 +30,12 @@ yarn dev
 
 ## Testing
 
-The deploy workflow runs Cypress E2E tests before building GitHub Pages.
+The deploy workflow runs unit tests and Cypress E2E tests before building GitHub Pages.
 
 Run locally:
 
 ```sh
+yarn test:run
 yarn e2e
 ```
 

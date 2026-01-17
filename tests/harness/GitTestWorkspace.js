@@ -222,16 +222,19 @@ export class GitTestWorkspace {
           return null
         }
       },
-      createFile: async ({ parentId, name }) => {
+      createFile: async ({ parentId, name, content = '' }) => {
         const dir = parentId || '/'
         const path = `${dir}/${name}`.replace(/\/+/g, '/')
         try {
           await self.pfs.stat(path)
           return false
         } catch {
-          await self.pfs.writeFile(path, '', 'utf8')
+          await self.pfs.writeFile(path, content, 'utf8')
           return true
         }
+      },
+      updateFileContent: async (path, content) => {
+        await self.pfs.writeFile(path, content, 'utf8')
       },
       createFolder: async ({ parentId, name }) => {
         const dir = parentId || '/'

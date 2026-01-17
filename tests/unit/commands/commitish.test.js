@@ -130,5 +130,24 @@ describe('commitish parsing', () => {
       const { output } = await mergeWs.git('log -n 1')
       expect(output).toContain('Feature commit')
     })
+
+    it('resolves HEAD^2~1 left-to-right (second parent, then its parent)', async () => {
+      // Second parent is "Feature commit", its parent should be "Initial commit"
+      await mergeWs.git('checkout HEAD^2~1')
+      const { output } = await mergeWs.git('log -n 1')
+      expect(output).toContain('Initial commit')
+    })
+
+    it('resolves HEAD^1~1 left-to-right (first parent, then its parent)', async () => {
+      // First parent is "Main commit", its parent should be "Initial commit"
+      await mergeWs.git('checkout HEAD^1~1')
+      const { output } = await mergeWs.git('log -n 1')
+      expect(output).toContain('Initial commit')
+    })
+
+    it('rejects invalid mixed parent on non-merge commit (HEAD~1^2)', async () => {
+      const { output } = await mergeWs.git('checkout HEAD~1^2')
+      expect(output.toLowerCase()).toMatch(/error|invalid|not found|not a tree|fatal/)
+    })
   })
 })

@@ -16,6 +16,7 @@ function TerminalPane() {
     readDirectory,
     readTextFile,
     statPath,
+    updateFileContent,
     refreshTree,
     resetToken,
   } = useContext(FileSystemContext)
@@ -121,6 +122,7 @@ function TerminalPane() {
       readDirectory,
       readTextFile,
       createFile,
+      updateFileContent,
       createFolder,
       deleteNode,
       refreshTree,
