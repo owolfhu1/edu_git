@@ -219,20 +219,29 @@ const copyDir = async (pfs, source, destination) => {
 }
 
 const cloneIcon = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-    <circle cx="6" cy="6" r="2.5" />
-    <circle cx="18" cy="18" r="2.5" />
-    <path d="M8.5 8.5L15.5 15.5" />
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M8 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+    <rect x="8" y="2" width="12" height="12" rx="2" />
   </svg>
 )
 
 const forkIcon = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-    <circle cx="6" cy="6" r="2.5" />
-    <circle cx="6" cy="18" r="2.5" />
-    <circle cx="18" cy="18" r="2.5" />
-    <path d="M6 8.5v6" />
-    <path d="M6 16.5h6a6 6 0 0 0 6-6V8.5" />
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="18" r="2" />
+    <circle cx="6" cy="6" r="2" />
+    <circle cx="18" cy="6" r="2" />
+    <path d="M12 16V12a2 2 0 0 0-2-2H8M12 12a2 2 0 0 1 2-2h2" />
+    <path d="M6 8v2M18 8v2" />
+  </svg>
+)
+
+const deleteIcon = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 6h18" />
+    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+    <line x1="10" y1="11" x2="10" y2="17" />
+    <line x1="14" y1="11" x2="14" y2="17" />
   </svg>
 )
 
@@ -1791,6 +1800,9 @@ function RemoteRepoModal({
                             onClick={() => setDeleteRepoOpen((prev) => !prev)}
                             data-cy="remote-delete-toggle"
                           >
+                            <span className="remote-repo-modal__action-icon" aria-hidden="true">
+                              {deleteIcon}
+                            </span>
                             Delete
                           </button>
                           {deleteRepoOpen ? (
