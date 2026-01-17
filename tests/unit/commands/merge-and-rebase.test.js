@@ -3,8 +3,9 @@
  * Migrated from cypress/e2e/git_cheat_sheet_commands.cy.js (partial)
  */
 
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createWorkspace } from '../../harness/GitTestWorkspace.js'
+import git from 'isomorphic-git'
 
 describe('git merge and rebase', () => {
   let ws
@@ -135,6 +136,42 @@ describe('git merge and rebase', () => {
 
       expect(output).toContain('Successfully rebased')
       expect(await ws.isInRebase()).toBe(false)
+    })
+
+    it('blocks rebase --continue if conflict file changes after staging', async () => {
+      await ws.git('checkout -b feature')
+      await ws.writeFile('src/index.txt', 'feature line')
+      await ws.git('add .')
+      await ws.git('commit -m "feature change"')
+
+      await ws.git('checkout main')
+      await ws.writeFile('src/index.txt', 'main line')
+      await ws.git('add .')
+      await ws.git('commit -m "main change"')
+
+      await ws.git('checkout feature')
+      await ws.git('rebase main')
+
+      // Resolve conflict and stage it.
+      await ws.writeFile('src/index.txt', 'resolved content')
+      await ws.git('add .')
+
+      const originalCommit = git.commit
+      let injected = false
+      const spy = vi.spyOn(git, 'commit').mockImplementation(async (...args) => {
+        if (!injected) {
+          injected = true
+          await ws.writeFile('src/index.txt', 'changed after staging')
+        }
+        return originalCommit(...args)
+      })
+
+      const { output } = await ws.git('rebase --continue')
+      spy.mockRestore()
+
+      expect(output.toLowerCase()).toContain('fatal')
+      expect(output.toLowerCase()).toContain('fix conflicts')
+      expect(await ws.isInRebase()).toBe(true)
     })
 
     it('aborts rebase when requested', async () => {

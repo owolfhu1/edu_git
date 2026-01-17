@@ -246,6 +246,7 @@ function FileSystemProvider({ children }) {
   const [openFilePaths, setOpenFilePaths] = useState(['/src/README.txt'])
   const [isReady, setIsReady] = useState(false)
   const [resetToken, setResetToken] = useState(0)
+  const [gitRefreshToken, setGitRefreshToken] = useState(0)
 
   const refreshTree = useCallback(async () => {
     const nextTree = await buildTree(pfs, '/')
@@ -839,6 +840,7 @@ function FileSystemProvider({ children }) {
     tree,
     isReady,
     resetToken,
+    gitRefreshToken,
     selectedFile,
     selectedFilePath,
     openFilePaths,
@@ -861,6 +863,7 @@ function FileSystemProvider({ children }) {
     exportWorkspaceState,
     importWorkspaceState,
     refreshTree,
+    bumpGitRefresh: () => setGitRefreshToken((prev) => prev + 1),
   }
 
   return (

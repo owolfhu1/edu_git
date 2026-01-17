@@ -379,7 +379,17 @@ export class GitTestWorkspace {
         await this.pfs.stat(`${this.gitdir}/rebase-apply`)
         return true
       } catch {
-        return false
+        try {
+          await this.pfs.stat(`${this.gitdir}/REBASE_HEAD`)
+          return true
+        } catch {
+          try {
+            await this.pfs.stat(`${this.gitdir}/REBASE_TODO`)
+            return true
+          } catch {
+            return false
+          }
+        }
       }
     }
   }

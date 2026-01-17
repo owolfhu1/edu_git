@@ -16,6 +16,7 @@ function EditorArea() {
     updateFileContent,
     gitFs,
     statPath,
+    gitRefreshToken,
   } = useContext(FileSystemContext)
   const gutterRef = useRef(null)
   const editorRef = useRef(null)
@@ -174,7 +175,7 @@ function EditorArea() {
     return () => {
       cancelled = true
     }
-  }, [gitFs, selectedFile, selectedFilePath, statPath])
+  }, [gitFs, selectedFile, selectedFilePath, statPath, gitRefreshToken])
 
   useEffect(() => {
     if (!gutterMenu) {

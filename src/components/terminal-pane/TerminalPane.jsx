@@ -18,6 +18,7 @@ function TerminalPane() {
     statPath,
     updateFileContent,
     refreshTree,
+    bumpGitRefresh,
     resetToken,
   } = useContext(FileSystemContext)
   const [cwdPath, setCwdPath] = useState('/')
@@ -135,6 +136,9 @@ function TerminalPane() {
       gitRoot,
       setBranchName,
     })
+    if (command === 'git') {
+      bumpGitRefresh()
+    }
   }
 
   const handleSubmit = async (event) => {

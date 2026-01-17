@@ -1718,6 +1718,12 @@ const gitCommand = async (args, context) => {
         }
         if (currentOid) {
           const { commit } = await git.readCommit({ fs, dir: root, gitdir, oid: currentOid })
+          const headBefore = await git.resolveRef({
+            fs,
+            dir: root,
+            gitdir,
+            ref: currentBranch,
+          })
           const sha = await git.commit({
             fs,
             dir: root,
@@ -1725,6 +1731,32 @@ const gitCommand = async (args, context) => {
             author: { name: 'Learner', email: 'learner@example.com' },
             message: commit.message,
           })
+          const stillConflicted = await hasUnresolvedConflicts(
+            fs,
+            root,
+            gitdir,
+            conflictFiles
+          )
+          if (stillConflicted) {
+            await git.writeRef({
+              fs,
+              dir: root,
+              gitdir,
+              ref: `refs/heads/${currentBranch}`,
+              value: headBefore,
+              force: true,
+            })
+            await git.checkout({
+              fs,
+              dir: root,
+              gitdir,
+              ref: currentBranch,
+              force: true,
+            })
+            await refreshTree()
+            appendOutput(['fatal: Fix conflicts and stage the result first.'])
+            return
+          }
           await pfs.unlink(rebaseCurrentPath).catch(() => {})
           await pfs.unlink(rebaseConflictsPath).catch(() => {})
           index += 1

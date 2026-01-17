@@ -91,6 +91,17 @@ describe('diff views', () => {
     cy.get('.editor-area__gutter-line--add').should('not.exist')
   })
 
+  it('refreshes gutter markers after git restore', () => {
+    openEditorFile('/src/index.txt')
+    cy.get('.editor-area__gutter-line--add').should('exist')
+
+    runCommand('git checkout -- /src/index.txt')
+
+    cy.get('.editor-area__gutter-line--add').should('not.exist')
+    cy.get('.editor-area__gutter-line--modified').should('not.exist')
+    cy.get('.editor-area__gutter-line--removed').should('not.exist')
+  })
+
   it('shows remote compare diffs for main vs diff_branch', () => {
     cy.get('[data-cy=workspace-menu-toggle]').click()
     cy.get('[data-cy=workspace-menu-panel]').should('be.visible')
