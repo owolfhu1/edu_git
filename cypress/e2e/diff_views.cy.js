@@ -37,6 +37,20 @@ const openEditorFile = (path) => {
   cy.get(`[data-cy=editor-tab][data-path="${path}"]`).should('exist')
 }
 
+const openRemoteRepo = (repoName) => {
+  cy.get('[data-cy=remote-menu-home]').should('exist')
+  cy.get('[data-cy=remote-home-repo][data-repo="edu-git"]', { timeout: 10000 }).then(
+    ($repo) => {
+      if (repoName && repoName !== 'edu-git') {
+        const selector = `[data-cy=remote-home-repo][data-repo="${repoName}"]`
+        cy.get(selector).click()
+      } else {
+        cy.wrap($repo).click()
+      }
+    }
+  )
+}
+
 describe('diff views', () => {
   beforeEach(() => {
     cy.visit('/')
@@ -82,6 +96,7 @@ describe('diff views', () => {
     cy.get('[data-cy=workspace-menu-panel]').should('be.visible')
     cy.get('[data-cy=workspace-menu-remote]').click()
     cy.get('[data-cy=remote-modal]').should('be.visible')
+    openRemoteRepo('edu-git')
     cy.get('[data-cy=remote-menu-compare]').click()
 
     cy.get('.remote-repo-modal__compare-bar select').eq(0).select('main')
@@ -125,6 +140,7 @@ describe('diff views', () => {
     cy.get('[data-cy=workspace-menu-panel]').should('be.visible')
     cy.get('[data-cy=workspace-menu-remote]').click()
     cy.get('[data-cy=remote-modal]').should('be.visible')
+    openRemoteRepo('edu-git')
     cy.get('[data-cy=remote-menu-compare]').click()
     cy.get('.remote-repo-modal__compare-bar select').eq(0).select('main')
     cy.get('.remote-repo-modal__compare-bar select').eq(1).select('add_remote')
@@ -156,6 +172,7 @@ describe('diff views', () => {
     cy.get('[data-cy=workspace-menu-panel]').should('be.visible')
     cy.get('[data-cy=workspace-menu-remote]').click()
     cy.get('[data-cy=remote-modal]').should('be.visible')
+    openRemoteRepo('edu-git')
     cy.get('[data-cy=remote-menu-compare]').click()
     cy.get('.remote-repo-modal__compare-bar select').eq(0).select('main')
     cy.get('.remote-repo-modal__compare-bar select').eq(1).select('delete_remote')

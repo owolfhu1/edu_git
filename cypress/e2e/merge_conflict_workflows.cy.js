@@ -20,6 +20,14 @@ const openRemoteMr = () => {
   cy.get('[data-cy=workspace-menu-panel]').should('be.visible')
   cy.get('[data-cy=workspace-menu-remote]').click()
   cy.get('[data-cy=remote-modal]').should('be.visible')
+  cy.get('body').then(($body) => {
+    if ($body.find('[data-cy=remote-menu-home]').length) {
+      cy.get('[data-cy=remote-menu-home]').click()
+    }
+  })
+  cy.get('[data-cy=remote-home-repo][data-repo="edu-git"]', {
+    timeout: 10000,
+  }).click()
   cy.get('[data-cy=remote-menu-merge-requests]').click()
   cy.get('[data-cy=remote-mr-row][data-slug="conflicted_mr"]', {
     timeout: 10000,

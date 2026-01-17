@@ -33,6 +33,25 @@ const ensureRemoteRepo = async (fs, pfs, remoteName) => {
   return { remotePath, gitdir }
 }
 
+const parseRemoteUrl = (url) => {
+  if (!url) {
+    return null
+  }
+  try {
+    const parsed = new URL(url)
+    if (parsed.hostname !== 'remote.mock') {
+      return null
+    }
+    const segments = parsed.pathname.split('/').filter(Boolean)
+    if (segments.length === 0) {
+      return null
+    }
+    return segments[0]
+  } catch (error) {
+    return null
+  }
+}
+
 const copyDir = async (pfs, source, destination) => {
   try {
     await ensureDir(pfs, destination)
@@ -51,6 +70,25 @@ const copyDir = async (pfs, source, destination) => {
   } catch (error) {
     if (error?.code !== 'ENOENT') {
       throw error
+    }
+  }
+}
+
+const copyWorkingTree = async (pfs, source, destination) => {
+  const entries = await pfs.readdir(source)
+  for (const entry of entries) {
+    if (entry === '.git' || entry === '.edu_git_remote.json') {
+      continue
+    }
+    const fromPath = `${source}/${entry}`
+    const toPath = `${destination}/${entry}`
+    const stats = await pfs.stat(fromPath)
+    if (stats.type === 'dir') {
+      await ensureDir(pfs, toPath)
+      await copyWorkingTree(pfs, fromPath, toPath)
+    } else {
+      const content = await pfs.readFile(fromPath)
+      await pfs.writeFile(toPath, content)
     }
   }
 }
@@ -322,6 +360,52 @@ const gitCommand = async (args, context) => {
     return
   }
 
+  if (subcommand === 'clone') {
+    const url = args[1]
+    const targetArg = args[2]
+    if (!url) {
+      appendOutput(['fatal: git clone requires a repository URL'])
+      return
+    }
+    const repoName = parseRemoteUrl(url)
+    if (!repoName) {
+      appendOutput(['fatal: unsupported clone URL'])
+      return
+    }
+    const remotePath = `${REMOTE_ROOT}/${repoName}`
+    const remoteGitdir = `${remotePath}/.git`
+    try {
+      await pfs.stat(remoteGitdir)
+    } catch (error) {
+      appendOutput([`fatal: repository '${url}' not found`])
+      return
+    }
+    const targetName = targetArg || repoName
+    const targetPath = normalizePath(targetName, cwdPath)
+    const existing = await statPath(targetPath)
+    if (existing) {
+      appendOutput([`fatal: destination path '${targetName}' already exists`])
+      return
+    }
+    try {
+      await ensureDir(pfs, targetPath)
+      await copyDir(pfs, remoteGitdir, `${targetPath}/.git`)
+      await copyWorkingTree(pfs, remotePath, targetPath)
+      await git.setConfig({
+        fs,
+        dir: targetPath,
+        gitdir: `${targetPath}/.git`,
+        path: 'remote.origin.url',
+        value: url,
+      })
+      appendOutput([`Cloned ${url} to ${targetName}`])
+      await refreshTree()
+    } catch (error) {
+      appendOutput([`fatal: ${error.message}`])
+    }
+    return
+  }
+
   if (subcommand === 'status') {
     try {
       const repo = await resolveRepo()
@@ -329,12 +413,17 @@ const gitCommand = async (args, context) => {
         return
       }
       const { root, gitdir } = repo
-      const branch = await git.currentBranch({
-        fs,
-        dir: root,
-        gitdir,
-        fullname: false,
-      })
+      let branch = null
+      try {
+        branch = await git.currentBranch({
+          fs,
+          dir: root,
+          gitdir,
+          fullname: false,
+        })
+      } catch (error) {
+        branch = null
+      }
       setBranchName(branch || 'detached')
       const statusMatrix = await git.statusMatrix({ fs, dir: root, gitdir })
       let mergeHead = null
@@ -352,8 +441,32 @@ const gitCommand = async (args, context) => {
       if (branch) {
         appendOutput([`On branch ${branch}`])
       } else {
-        const headOid = await git.resolveRef({ fs, dir: root, gitdir, ref: 'HEAD' })
-        appendOutput([`HEAD detached at ${headOid.slice(0, 7)}`])
+        let headOid = null
+        try {
+          headOid = await git.resolveRef({ fs, dir: root, gitdir, ref: 'HEAD' })
+        } catch (error) {
+          headOid = null
+        }
+        if (headOid) {
+          appendOutput([`HEAD detached at ${headOid.slice(0, 7)}`])
+        } else {
+          let fallback = null
+          try {
+            await pfs.stat(`${gitdir}/refs/heads/main`)
+            fallback = 'main'
+          } catch (error) {
+            fallback = null
+          }
+          if (!fallback) {
+            try {
+              await pfs.stat(`${gitdir}/refs/heads/master`)
+              fallback = 'master'
+            } catch (error) {
+              fallback = null
+            }
+          }
+          appendOutput([`On branch ${fallback || 'unknown'}`])
+        }
       }
 
       const staged = []
@@ -1190,7 +1303,8 @@ const gitCommand = async (args, context) => {
         return
       }
       const localOid = await git.resolveRef({ fs, dir: root, gitdir, ref: branch })
-      const remoteRepo = await ensureRemoteRepo(fs, pfs, remote)
+      const remoteRepoName = parseRemoteUrl(url) || remote
+      const remoteRepo = await ensureRemoteRepo(fs, pfs, remoteRepoName)
       await copyDir(pfs, `${gitdir}/objects`, `${remoteRepo.gitdir}/objects`)
       await git.writeRef({
         fs,
@@ -1226,7 +1340,8 @@ const gitCommand = async (args, context) => {
         appendOutput([`fatal: '${remote}' does not appear to be a git repository`])
         return
       }
-      const remoteRepo = await ensureRemoteRepo(fs, pfs, remote)
+      const remoteRepoName = parseRemoteUrl(url) || remote
+      const remoteRepo = await ensureRemoteRepo(fs, pfs, remoteRepoName)
       await copyDir(pfs, `${remoteRepo.gitdir}/objects`, `${gitdir}/objects`)
       const remoteBranches = await git.listBranches({
         fs,
@@ -1288,7 +1403,8 @@ const gitCommand = async (args, context) => {
         appendOutput([`fatal: '${remote}' does not appear to be a git repository`])
         return
       }
-      const remoteRepo = await ensureRemoteRepo(fs, pfs, remote)
+      const remoteRepoName = parseRemoteUrl(url) || remote
+      const remoteRepo = await ensureRemoteRepo(fs, pfs, remoteRepoName)
       await copyDir(pfs, `${remoteRepo.gitdir}/objects`, `${gitdir}/objects`)
       const remoteOid = await git.resolveRef({
         fs,

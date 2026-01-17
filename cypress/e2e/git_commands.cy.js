@@ -21,6 +21,7 @@ describe('git command basics', () => {
   })
 
   it('shows git status and switches branches', () => {
+    runCommand('git init')
     runCommand('git status')
     cy.get('[data-cy=terminal-body]', { timeout: 10000 }).should(
       'contain',

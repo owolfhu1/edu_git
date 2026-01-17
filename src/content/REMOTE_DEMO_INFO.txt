@@ -1,0 +1,25 @@
+Remote repositories in Git
+
+A remote repository is a shared copy of a Git repo that lives somewhere
+else, like a server or a hosted platform. It lets multiple people work
+on the same project and sync changes through pushes and pulls.
+
+What remotes do:
+- Share work: push commits so others can see and fetch them.
+- Collaborate: review changes before merging into the main branch.
+- Backup: keep a server-side copy of your history.
+- Integrate: pull teammates' changes and resolve conflicts.
+
+Common workflows:
+- Clone a repo, then pull and push changes.
+- Create feature branches locally and push them to the remote.
+- Fork a repo when you need your own remote copy to work on.
+- Open a merge request to review and merge into main.
+- Fetch updates before starting new work.
+
+Key commands:
+- git remote -v
+- git fetch origin
+- git pull origin main
+- git push -u origin main
+- git clone https://remote.mock/edu-git

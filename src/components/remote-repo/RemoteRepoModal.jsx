@@ -5,10 +5,10 @@ import { FileSystemContext } from '../../store/FileSystemContext'
 import { lcsDiff } from '../../git/diff'
 import { FileIcon, FolderClosedIcon, FolderOpenIcon } from '../icons/FileIcons'
 
-const BASE_URL = 'https://remote.mock/edu-git'
+const BASE_URL = 'https://remote.mock'
 const MERGE_AUTHOR = { name: 'Edu Git', email: 'edu@example.com' }
 const REMOTE_NAME = 'origin'
-const REMOTE_PATH = '/.remotes/origin'
+const REMOTE_ROOT = '/.remotes'
 const IGNORED_COMPARE_PREFIXES = ['.remotes/', '.git/']
 const IGNORED_COMPARE_FILES = new Set(['.edu_git_remote.json'])
 
@@ -63,6 +63,25 @@ const parseFilePath = (path, branches) => {
   }
   return { branch: head, filePath }
 }
+
+const parseRepoRoute = (path) => {
+  const normalized = normalizePath(path)
+  if (normalized === '/') {
+    return { repo: null, subPath: '/', isHome: true }
+  }
+  const segments = normalized.split('/').filter(Boolean)
+  if (segments.length === 0) {
+    return { repo: null, subPath: '/', isHome: true }
+  }
+  const [repo, ...rest] = segments
+  return {
+    repo,
+    subPath: `/${rest.join('/')}`,
+    isHome: false,
+  }
+}
+
+const buildRepoPath = (repo, subPath) => `/${repo}${subPath}`
 
 const slugifyTitle = (title) =>
   title
@@ -182,6 +201,40 @@ const isBranchPairTaken = (mergeRequests, baseBranch, compareBranch, excludeId) 
       mr.base === baseBranch &&
       mr.compare === compareBranch
   )
+
+const copyDir = async (pfs, source, destination) => {
+  await pfs.mkdir(destination)
+  const entries = await pfs.readdir(source)
+  for (const entry of entries) {
+    const fromPath = `${source}/${entry}`
+    const toPath = `${destination}/${entry}`
+    const stats = await pfs.stat(fromPath)
+    if (stats.type === 'dir') {
+      await copyDir(pfs, fromPath, toPath)
+    } else {
+      const content = await pfs.readFile(fromPath)
+      await pfs.writeFile(toPath, content)
+    }
+  }
+}
+
+const cloneIcon = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+    <circle cx="6" cy="6" r="2.5" />
+    <circle cx="18" cy="18" r="2.5" />
+    <path d="M8.5 8.5L15.5 15.5" />
+  </svg>
+)
+
+const forkIcon = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+    <circle cx="6" cy="6" r="2.5" />
+    <circle cx="6" cy="18" r="2.5" />
+    <circle cx="18" cy="18" r="2.5" />
+    <path d="M6 8.5v6" />
+    <path d="M6 16.5h6a6 6 0 0 0 6-6V8.5" />
+  </svg>
+)
 
 const buildRemoteTree = async (fs, dir, gitdir, ref) => {
   const commitOid = await git.resolveRef({ fs, dir, gitdir, ref })
@@ -371,6 +424,11 @@ function RemoteRepoModal({
     commits: [],
     defaultBranch: null,
   })
+  const [remoteRepos, setRemoteRepos] = useState([])
+  const [createRepoOpen, setCreateRepoOpen] = useState(false)
+  const [createRepoName, setCreateRepoName] = useState('')
+  const [createRepoError, setCreateRepoError] = useState('')
+  const [repoMissing, setRepoMissing] = useState(false)
   const [selectedBranch, setSelectedBranch] = useState(null)
   const [remoteTree, setRemoteTree] = useState([])
   const [expandedFolders, setExpandedFolders] = useState(() => new Set())
@@ -385,6 +443,12 @@ function RemoteRepoModal({
   const [mergeRequests, setMergeRequests] = useState([])
   const [mrStatusFilter, setMrStatusFilter] = useState('open')
   const [commitRefreshToken, setCommitRefreshToken] = useState(0)
+  const [cloneMenuOpen, setCloneMenuOpen] = useState(false)
+  const [forkMenuOpen, setForkMenuOpen] = useState(false)
+  const [forkName, setForkName] = useState('')
+  const [forkError, setForkError] = useState('')
+  const [deleteRepoOpen, setDeleteRepoOpen] = useState(false)
+  const [remoteReadme, setRemoteReadme] = useState(null)
   const [mrDetail, setMrDetail] = useState({
     commits: [],
     diffs: [],
@@ -405,9 +469,83 @@ function RemoteRepoModal({
   const [conflictStrategy, setConflictStrategy] = useState('merge')
   const mergeRequestsLoadedRef = useRef(false)
 
+  const route = useMemo(() => parseRepoRoute(currentPath), [currentPath])
+  const activeRepo = route.repo
+  const repoPath = activeRepo ? `${REMOTE_ROOT}/${activeRepo}` : null
+  const repoGitDir = repoPath ? `${repoPath}/.git` : null
+  const repoSubPath = route.subPath || '/'
+  const remoteUrl = activeRepo ? `${BASE_URL}/${activeRepo}` : `${BASE_URL}/<repo>`
+  const navigateRepo = (path) => {
+    if (!activeRepo) {
+      onNavigate('/')
+      return
+    }
+    onNavigate(buildRepoPath(activeRepo, path))
+  }
+
+  useEffect(() => {
+    mergeRequestsLoadedRef.current = false
+    seededMergeRequestsRef.current = false
+    setMergeRequests([])
+    setMrStatusFilter('open')
+    setMrMenuOpen(false)
+    setMrTitle('')
+    setMrAction(null)
+    setDeleteBranchOnMerge(false)
+  }, [activeRepo])
+
   useEffect(() => {
     setAddress(`${BASE_URL}${currentPath}`)
   }, [currentPath, refreshKey])
+
+  useEffect(() => {
+    let cancelled = false
+    const checkRepo = async () => {
+      if (!isOpen || !activeRepo) {
+        if (!cancelled) {
+          setRepoMissing(false)
+        }
+        return
+      }
+      try {
+        const stats = await pfs.stat(`${REMOTE_ROOT}/${activeRepo}`)
+        if (!cancelled) {
+          setRepoMissing(stats?.type !== 'dir')
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setRepoMissing(true)
+        }
+      }
+    }
+    checkRepo()
+    return () => {
+      cancelled = true
+    }
+  }, [activeRepo, isOpen, pfs, refreshKey])
+
+  useEffect(() => {
+    let cancelled = false
+    const loadRepos = async () => {
+      if (!isOpen) {
+        return
+      }
+      try {
+        const entries = await pfs.readdir(REMOTE_ROOT)
+        if (!cancelled) {
+          setRemoteRepos(entries.filter((entry) => !entry.startsWith('.')).sort())
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setRemoteRepos([])
+        }
+      }
+    }
+    loadRepos()
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, pfs, refreshKey])
 
   useEffect(() => {
     let cancelled = false
@@ -415,7 +553,16 @@ function RemoteRepoModal({
       if (!isOpen) {
         return
       }
-      const gitdir = `${REMOTE_PATH}/.git`
+      if (!activeRepo || !repoGitDir || !repoPath || repoMissing) {
+        if (!cancelled) {
+          setRemoteState({ connected: false, branches: [], commits: [] })
+          setSelectedBranch(null)
+          setCompareBase(null)
+          setCompareTarget(null)
+        }
+        return
+      }
+      const gitdir = repoGitDir
       let gitExists = false
       try {
         const stats = await pfs.stat(gitdir)
@@ -432,22 +579,32 @@ function RemoteRepoModal({
       try {
         const branches = await git.listBranches({
           fs,
-          dir: REMOTE_PATH,
+          dir: repoPath,
           gitdir,
         })
+        if (branches.length === 0) {
+          if (!cancelled) {
+            setRemoteState({ connected: false, branches: [], commits: [], defaultBranch: null })
+            setSelectedBranch(null)
+            setCompareBase(null)
+            setCompareTarget(null)
+          }
+          return
+        }
         const defaultBranch = branches.includes('main') ? 'main' : branches[0] || null
         let commits = []
         if (defaultBranch) {
           commits = await git.log({
             fs,
-            dir: REMOTE_PATH,
+            dir: repoPath,
             gitdir,
             ref: defaultBranch,
           })
         }
+        const connected = commits.length > 0
         if (!cancelled) {
           setRemoteState({
-            connected: true,
+            connected,
             branches,
             commits,
             defaultBranch,
@@ -472,33 +629,63 @@ function RemoteRepoModal({
     return () => {
       cancelled = true
     }
-  }, [fs, isOpen, pfs, refreshKey])
+  }, [activeRepo, fs, isOpen, pfs, refreshKey, repoGitDir, repoMissing, repoPath])
 
   useEffect(() => {
-    if (!isOpen || mergeRequestsLoadedRef.current) {
+    if (!isOpen || mergeRequestsLoadedRef.current || !activeRepo || !repoPath) {
       return
     }
-    const stored = window.__eduGitMergeRequests
-    if (Array.isArray(stored) && stored.length > 0) {
-      setMergeRequests(stored)
+    if (repoMissing) {
       mergeRequestsLoadedRef.current = true
-    }
-  }, [isOpen])
-
-  useEffect(() => {
-    if (!isOpen) {
       return
     }
-    window.__eduGitMergeRequests = mergeRequests
-  }, [isOpen, mergeRequests])
+    const metadataPath = `${repoPath}/.edu_git_remote.json`
+    const loadMergeRequests = async () => {
+      try {
+        const content = await pfs.readFile(metadataPath, 'utf8')
+        if (!content) {
+          mergeRequestsLoadedRef.current = true
+          return
+        }
+        const data = JSON.parse(content)
+        if (Array.isArray(data?.mergeRequests)) {
+          setMergeRequests(data.mergeRequests)
+        }
+      } catch (error) {
+        // ignore
+      } finally {
+        mergeRequestsLoadedRef.current = true
+      }
+    }
+    loadMergeRequests()
+  }, [activeRepo, isOpen, pfs, repoMissing, repoPath])
+
+  useEffect(() => {
+    if (!isOpen || !activeRepo || !repoPath) {
+      return
+    }
+    if (repoMissing) {
+      return
+    }
+    const metadataPath = `${repoPath}/.edu_git_remote.json`
+    pfs
+      .writeFile(
+        metadataPath,
+        JSON.stringify({ mergeRequests }, null, 2)
+      )
+      .catch(() => {})
+  }, [activeRepo, isOpen, mergeRequests, pfs, repoMissing, repoPath])
 
   useEffect(() => {
     let cancelled = false
     const loadSeedMergeRequests = async () => {
-      if (!isOpen || !remoteState.connected || seededMergeRequestsRef.current) {
+      if (!isOpen || !remoteState.connected || seededMergeRequestsRef.current || !repoPath) {
         return
       }
-      const metadataPath = `${REMOTE_PATH}/.edu_git_remote.json`
+      if (repoMissing) {
+        return
+      }
+      const metadataPath = `${repoPath}/.edu_git_remote.json`
       try {
         const content = await pfs.readFile(metadataPath, 'utf8')
         if (!content) {
@@ -535,7 +722,7 @@ function RemoteRepoModal({
     return () => {
       cancelled = true
     }
-  }, [isOpen, pfs, remoteState.connected])
+  }, [isOpen, pfs, remoteState.connected, repoMissing, repoPath])
 
   useEffect(() => {
     if (!mrMenuOpen) {
@@ -549,6 +736,45 @@ function RemoteRepoModal({
     window.addEventListener('mousedown', handleOutside)
     return () => window.removeEventListener('mousedown', handleOutside)
   }, [mrMenuOpen])
+
+  useEffect(() => {
+    if (!cloneMenuOpen) {
+      return undefined
+    }
+    const handleOutside = (event) => {
+      if (!event.target.closest('.remote-repo-modal__clone-menu')) {
+        setCloneMenuOpen(false)
+      }
+    }
+    window.addEventListener('mousedown', handleOutside)
+    return () => window.removeEventListener('mousedown', handleOutside)
+  }, [cloneMenuOpen])
+
+  useEffect(() => {
+    if (!forkMenuOpen) {
+      return undefined
+    }
+    const handleOutside = (event) => {
+      if (!event.target.closest('.remote-repo-modal__fork-menu')) {
+        setForkMenuOpen(false)
+      }
+    }
+    window.addEventListener('mousedown', handleOutside)
+    return () => window.removeEventListener('mousedown', handleOutside)
+  }, [forkMenuOpen])
+
+  useEffect(() => {
+    if (!deleteRepoOpen) {
+      return undefined
+    }
+    const handleOutside = (event) => {
+      if (!event.target.closest('.remote-repo-modal__delete-menu')) {
+        setDeleteRepoOpen(false)
+      }
+    }
+    window.addEventListener('mousedown', handleOutside)
+    return () => window.removeEventListener('mousedown', handleOutside)
+  }, [deleteRepoOpen])
 
   useEffect(() => {
     if (!mrAction) {
@@ -566,23 +792,75 @@ function RemoteRepoModal({
   useEffect(() => {
     let cancelled = false
     const loadTree = async () => {
-      if (!isOpen || !remoteState.connected || !selectedBranch) {
+      if (
+        !isOpen ||
+        !remoteState.connected ||
+        !selectedBranch ||
+        !repoPath ||
+        !repoGitDir ||
+        repoMissing
+      ) {
         if (!cancelled) {
           setRemoteTree([])
+          setRemoteReadme(null)
         }
         return
       }
-      const gitdir = `${REMOTE_PATH}/.git`
+      const gitdir = repoGitDir
       try {
-        const treeEntries = await buildRemoteTree(fs, REMOTE_PATH, gitdir, selectedBranch)
+        const treeEntries = await buildRemoteTree(fs, repoPath, gitdir, selectedBranch)
         if (!cancelled) {
           setRemoteTree(treeEntries)
           setExpandedFolders(new Set())
+        }
+        try {
+          const commitOid = await git.resolveRef({
+            fs,
+            dir: repoPath,
+            gitdir,
+            ref: selectedBranch,
+          })
+          const { commit } = await git.readCommit({
+            fs,
+            dir: repoPath,
+            gitdir,
+            oid: commitOid,
+          })
+          const { tree } = await git.readTree({
+            fs,
+            dir: repoPath,
+            gitdir,
+            oid: commit.tree,
+          })
+          const readmeEntry = tree.find(
+            (entry) => entry.type === 'blob' && entry.path === 'README.txt'
+          )
+          if (!readmeEntry) {
+            if (!cancelled) {
+              setRemoteReadme(null)
+            }
+          } else {
+            const { blob } = await git.readBlob({
+              fs,
+              dir: repoPath,
+              gitdir,
+              oid: readmeEntry.oid,
+            })
+            const content = new TextDecoder().decode(blob)
+            if (!cancelled) {
+              setRemoteReadme(content)
+            }
+          }
+        } catch (error) {
+          if (!cancelled) {
+            setRemoteReadme(null)
+          }
         }
       } catch (error) {
         if (!cancelled) {
           setRemoteTree([])
           setExpandedFolders(new Set())
+          setRemoteReadme(null)
         }
       }
     }
@@ -590,21 +868,24 @@ function RemoteRepoModal({
     return () => {
       cancelled = true
     }
-  }, [fs, isOpen, remoteState.connected, selectedBranch])
+  }, [fs, isOpen, remoteState.connected, repoGitDir, repoMissing, repoPath, selectedBranch])
 
-  const page = useMemo(
-    () => PAGES.find((entry) => entry.path === currentPath) || null,
-    [currentPath]
-  )
+  const page = useMemo(() => {
+    if (route.isHome) {
+      return null
+    }
+    return PAGES.find((entry) => entry.path === repoSubPath) || null
+  }, [repoSubPath, route.isHome])
   const fileRoute = useMemo(
-    () => parseFilePath(currentPath, remoteState.branches),
-    [currentPath, remoteState.branches]
+    () => parseFilePath(repoSubPath, remoteState.branches),
+    [repoSubPath, remoteState.branches]
   )
-  const mrRoute = useMemo(() => parseMrPath(currentPath), [currentPath])
+  const mrRoute = useMemo(() => parseMrPath(repoSubPath), [repoSubPath])
   const activeMr = useMemo(
     () => mergeRequests.find((mr) => mr.slug === mrRoute) || null,
     [mergeRequests, mrRoute]
   )
+  const showRepoMissing = Boolean(activeRepo && repoMissing)
   const hasOpenCompareMr = useMemo(
     () =>
       mergeRequests.some(
@@ -645,7 +926,25 @@ function RemoteRepoModal({
         }
         return
       }
-      const gitdir = `${REMOTE_PATH}/.git`
+      if (!repoPath || !repoGitDir || repoMissing) {
+        if (!cancelled) {
+          setMrDetail({
+            commits: [],
+            diffs: [],
+            loading: false,
+            error: 'No remote repo selected.',
+            canMerge: false,
+            baseOid: null,
+            compareOid: null,
+            mergeStatus: null,
+            conflictFiles: [],
+            mergeMessage: null,
+            mergeRelation: null,
+          })
+        }
+        return
+      }
+      const gitdir = repoGitDir
       if (activeMr.status !== 'open' && activeMr.commits && activeMr.diffs) {
         if (!cancelled) {
           setMrDetail({
@@ -668,13 +967,13 @@ function RemoteRepoModal({
       try {
         const baseOid = await git.resolveRef({
           fs,
-          dir: REMOTE_PATH,
+          dir: repoPath,
           gitdir,
           ref: activeMr.base,
         })
         const compareOid = await git.resolveRef({
           fs,
-          dir: REMOTE_PATH,
+          dir: repoPath,
           gitdir,
           ref: activeMr.compare,
         })
@@ -685,14 +984,14 @@ function RemoteRepoModal({
           } else {
             const compareDescendsBase = await git.isDescendent({
               fs,
-              dir: REMOTE_PATH,
+              dir: repoPath,
               gitdir,
               oid: compareOid,
               ancestor: baseOid,
             })
             const baseDescendsCompare = await git.isDescendent({
               fs,
-              dir: REMOTE_PATH,
+              dir: repoPath,
               gitdir,
               oid: baseOid,
               ancestor: compareOid,
@@ -732,14 +1031,14 @@ function RemoteRepoModal({
         }
         const { diffs, commits } = await computeCompareData(
           fs,
-          REMOTE_PATH,
+          repoPath,
           gitdir,
           activeMr.base,
           activeMr.compare
         )
         const mergeability = await getMergeability(
           fs,
-          REMOTE_PATH,
+          repoPath,
           gitdir,
           activeMr.base,
           activeMr.compare
@@ -803,7 +1102,7 @@ function RemoteRepoModal({
     return () => {
       cancelled = true
     }
-  }, [activeMr, fs, isOpen, mrRoute])
+  }, [activeMr, fs, isOpen, mrRoute, repoMissing])
 
   useEffect(() => {
     let cancelled = false
@@ -815,17 +1114,24 @@ function RemoteRepoModal({
         }
         return
       }
-      const gitdir = `${REMOTE_PATH}/.git`
+      if (!repoPath || !repoGitDir || repoMissing) {
+        if (!cancelled) {
+          setFilePreview(null)
+          setFileError('404')
+        }
+        return
+      }
+      const gitdir = repoGitDir
       try {
         const commitOid = await git.resolveRef({
           fs,
-          dir: REMOTE_PATH,
+          dir: repoPath,
           gitdir,
           ref: fileRoute.branch,
         })
         const { commit } = await git.readCommit({
           fs,
-          dir: REMOTE_PATH,
+          dir: repoPath,
           gitdir,
           oid: commitOid,
         })
@@ -835,7 +1141,7 @@ function RemoteRepoModal({
           const part = parts[index]
           const { tree } = await git.readTree({
             fs,
-            dir: REMOTE_PATH,
+            dir: repoPath,
             gitdir,
             oid: currentTree,
           })
@@ -849,7 +1155,7 @@ function RemoteRepoModal({
             }
             const { blob } = await git.readBlob({
               fs,
-              dir: REMOTE_PATH,
+              dir: repoPath,
               gitdir,
               oid: entry.oid,
             })
@@ -880,7 +1186,7 @@ function RemoteRepoModal({
     return () => {
       cancelled = true
     }
-  }, [fileRoute, fs, isOpen])
+  }, [fileRoute, fs, isOpen, repoGitDir, repoMissing, repoPath])
 
   useEffect(() => {
     let cancelled = false
@@ -899,11 +1205,18 @@ function RemoteRepoModal({
       }
       setCompareLoading(true)
       setCompareError(null)
-      const gitdir = `${REMOTE_PATH}/.git`
+      if (!repoPath || !repoGitDir || repoMissing) {
+        if (!cancelled) {
+          setCompareDiffs([])
+          setCompareCommits([])
+        }
+        return
+      }
+      const gitdir = repoGitDir
       try {
         const { diffs, commits } = await computeCompareData(
           fs,
-          REMOTE_PATH,
+          repoPath,
           gitdir,
           compareBase,
           compareTarget
@@ -927,19 +1240,35 @@ function RemoteRepoModal({
     return () => {
       cancelled = true
     }
-  }, [compareBase, compareTarget, fs, isOpen, remoteState.connected])
+  }, [
+    compareBase,
+    compareTarget,
+    fs,
+    isOpen,
+    remoteState.connected,
+    repoGitDir,
+    repoMissing,
+    repoPath,
+  ])
 
   useEffect(() => {
     let cancelled = false
     const loadCommits = async () => {
-      if (!isOpen || !remoteState.connected || !selectedBranch) {
+      if (
+        !isOpen ||
+        !remoteState.connected ||
+        !selectedBranch ||
+        !repoPath ||
+        !repoGitDir ||
+        repoMissing
+      ) {
         return
       }
-      const gitdir = `${REMOTE_PATH}/.git`
+      const gitdir = repoGitDir
       try {
         const commits = await git.log({
           fs,
-          dir: REMOTE_PATH,
+          dir: repoPath,
           gitdir,
           ref: selectedBranch,
         })
@@ -956,7 +1285,16 @@ function RemoteRepoModal({
     return () => {
       cancelled = true
     }
-  }, [fs, isOpen, remoteState.connected, selectedBranch, commitRefreshToken])
+  }, [
+    fs,
+    isOpen,
+    remoteState.connected,
+    selectedBranch,
+    commitRefreshToken,
+    repoGitDir,
+    repoMissing,
+    repoPath,
+  ])
 
   const TreeRow = ({ node, depth, expandedFolders, onToggle }) => {
     const isFolder = node.type === 'tree'
@@ -977,7 +1315,7 @@ function RemoteRepoModal({
               return
             }
             const route = buildFilePath(selectedBranch, node.path)
-            onNavigate(route)
+            navigateRepo(route)
           }}
           role="button"
           tabIndex={0}
@@ -995,7 +1333,7 @@ function RemoteRepoModal({
               return
             }
             const route = buildFilePath(selectedBranch, node.path)
-            onNavigate(route)
+            navigateRepo(route)
           }}
         >
           <span className="remote-repo-modal__tree-icon" aria-hidden="true">
@@ -1071,7 +1409,7 @@ function RemoteRepoModal({
             className="remote-repo-modal__address"
             onSubmit={(event) => {
               event.preventDefault()
-              const nextPath = normalizePath(address).replace(/^\/edu-git/, '')
+              const nextPath = normalizePath(address)
               onNavigate(nextPath)
             }}
           >
@@ -1096,47 +1434,212 @@ function RemoteRepoModal({
         <div className="remote-repo-modal__body">
           <aside className="remote-repo-modal__sidebar">
             <div className="remote-repo-modal__repo">
-              <div className="remote-repo-modal__repo-name">edu-git</div>
-              <div className="remote-repo-modal__repo-meta">Remote Repo UI</div>
+              <div className="remote-repo-modal__repo-name">
+                {activeRepo || 'remote.mock'}
+              </div>
+              <div className="remote-repo-modal__repo-meta">
+                {activeRepo ? 'Remote Repo' : 'Remote Home'}
+              </div>
               <div
                 className={`remote-repo-modal__badge ${
                   remoteState.connected ? 'remote-repo-modal__badge--linked' : ''
                 }`}
                 data-cy="remote-status"
               >
-                {remoteState.connected ? `Linked: ${REMOTE_NAME}` : 'No remote linked'}
+                {activeRepo
+                  ? repoMissing
+                    ? 'Repo not found'
+                    : remoteState.connected
+                      ? `Linked: ${REMOTE_NAME}`
+                      : 'No remote linked'
+                  : 'Select a repo'}
               </div>
             </div>
             <nav className="remote-repo-modal__menu">
-              {PAGES.filter((entry) => {
-                if (!remoteState.connected) {
-                  return entry.path === '/'
-                }
-                if (entry.path === '/merge-requests') {
-                  return mergeRequests.length > 0
-                }
-                if (entry.path === '/compare') {
-                  return remoteState.branches.length > 1
-                }
-                return true
-              }).map((entry) => (
-                <button
-                  key={entry.path}
-                  type="button"
-                  className={`remote-repo-modal__menu-item ${
-                    currentPath === entry.path ? 'is-active' : ''
-                  }`}
-                  onClick={() => onNavigate(entry.path)}
-                  data-cy={`remote-menu-${entry.path === '/' ? 'overview' : entry.path.slice(1)}`}
-                >
-                  {entry.label}
-                </button>
-              ))}
+              <button
+                type="button"
+                className={`remote-repo-modal__menu-item ${
+                  route.isHome ? 'is-active' : ''
+                }`}
+                onClick={() => onNavigate('/')}
+                data-cy="remote-menu-home"
+              >
+                Home
+              </button>
+              {activeRepo && !repoMissing
+                ? PAGES.filter((entry) => {
+                    if (!remoteState.connected) {
+                      return entry.path === '/'
+                    }
+                    if (entry.path === '/merge-requests') {
+                      return mergeRequests.length > 0
+                    }
+                    if (entry.path === '/compare') {
+                      return remoteState.branches.length > 1
+                    }
+                    return true
+                  }).map((entry) => (
+                    <button
+                      key={entry.path}
+                      type="button"
+                      className={`remote-repo-modal__menu-item ${
+                        repoSubPath === entry.path ? 'is-active' : ''
+                      }`}
+                      onClick={() => navigateRepo(entry.path)}
+                      data-cy={`remote-menu-${entry.path === '/' ? 'overview' : entry.path.slice(1)}`}
+                    >
+                      {entry.label}
+                    </button>
+                  ))
+                : null}
             </nav>
           </aside>
 
           <main className="remote-repo-modal__content">
-            {page?.path === '/' && !fileRoute && (
+            {route.isHome && !fileRoute && (
+              <>
+                <div className="remote-repo-modal__header">
+                  <h2 data-cy="remote-home-title">Remote Home</h2>
+                </div>
+                <p>
+                  Create remote repositories here and open them to explore branches,
+                  commits, and merge requests.
+                </p>
+                <div className="remote-repo-modal__card remote-repo-modal__home-card">
+                  <div className="remote-repo-modal__row">
+                    <h3>Repositories</h3>
+                    <button
+                      type="button"
+                      className="remote-repo-modal__primary"
+                      onClick={() => {
+                        setCreateRepoOpen((prev) => !prev)
+                        setCreateRepoError('')
+                      }}
+                      data-cy="remote-home-create-toggle"
+                    >
+                      New Repo
+                    </button>
+                  </div>
+                  {remoteRepos.length === 0 ? (
+                    <div className="remote-repo-modal__empty">
+                      No remote repositories yet.
+                    </div>
+                  ) : (
+                    <div className="remote-repo-modal__repo-list">
+                      {remoteRepos.map((repo) => (
+                        <button
+                          key={repo}
+                          type="button"
+                          className="remote-repo-modal__repo-item"
+                          onClick={() => onNavigate(`/${repo}`)}
+                          data-cy="remote-home-repo"
+                          data-repo={repo}
+                        >
+                          {repo}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {createRepoOpen ? (
+                  <div className="remote-repo-modal__card remote-repo-modal__home-create">
+                    <h3>Create a new repository</h3>
+                    <label className="remote-repo-modal__mr-field">
+                      <span>Repository name</span>
+                      <input
+                        type="text"
+                        value={createRepoName}
+                        onChange={(event) => {
+                          setCreateRepoName(event.target.value)
+                          setCreateRepoError('')
+                        }}
+                        placeholder="my-project"
+                        data-cy="remote-home-create-input"
+                      />
+                    </label>
+                    {createRepoError ? (
+                      <div className="remote-repo-modal__home-error">{createRepoError}</div>
+                    ) : null}
+                    <div className="remote-repo-modal__home-actions">
+                      <button
+                        type="button"
+                        className="remote-repo-modal__mr-confirm-cancel"
+                        onClick={() => {
+                          setCreateRepoOpen(false)
+                          setCreateRepoName('')
+                          setCreateRepoError('')
+                        }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        className="remote-repo-modal__mr-create"
+                        disabled={!createRepoName.trim()}
+                        onClick={async () => {
+                          const rawName = createRepoName.trim()
+                          if (!rawName) {
+                            return
+                          }
+                          if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(rawName)) {
+                            setCreateRepoError(
+                              'Use letters, numbers, dots, dashes, or underscores.'
+                            )
+                            return
+                          }
+                          const repoPath = `${REMOTE_ROOT}/${rawName}`
+                          try {
+                            await pfs.stat(repoPath)
+                            setCreateRepoError('A repo with this name already exists.')
+                            return
+                          } catch (error) {
+                            // Not found means we can create it.
+                          }
+                          try {
+                            await pfs.mkdir(REMOTE_ROOT).catch((error) => {
+                              if (error?.code !== 'EEXIST') {
+                                throw error
+                              }
+                            })
+                            await pfs.mkdir(repoPath)
+                            await git.init({
+                              fs,
+                              dir: repoPath,
+                              gitdir: `${repoPath}/.git`,
+                              defaultBranch: 'main',
+                            })
+                            setRemoteRepos((prev) =>
+                              [...prev, rawName]
+                                .filter((value, index, arr) => arr.indexOf(value) === index)
+                                .sort()
+                            )
+                            setCreateRepoOpen(false)
+                            setCreateRepoName('')
+                            setCreateRepoError('')
+                            onNavigate(`/${rawName}`)
+                          } catch (error) {
+                            setCreateRepoError('Unable to create repo. Try again.')
+                          }
+                        }}
+                        data-cy="remote-home-create-submit"
+                      >
+                        Create
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            )}
+            {showRepoMissing && !fileRoute ? (
+              <div className="remote-repo-modal__notfound">
+                <div className="remote-repo-modal__notfound-code">404</div>
+                <div className="remote-repo-modal__notfound-title">Repository not found</div>
+                <div className="remote-repo-modal__notfound-text">
+                  Create this repo from Remote Home to continue.
+                </div>
+              </div>
+            ) : null}
+            {!showRepoMissing && page?.path === '/' && !fileRoute && (
               <>
                 <div className="remote-repo-modal__header">
                   <h2 data-cy="remote-overview-title">Remote Overview</h2>
@@ -1159,11 +1662,178 @@ function RemoteRepoModal({
                 <p>
                   {remoteState.connected
                     ? 'This remote repo is linked and ready to receive pushes.'
-                    : 'This remote repo is not connected yet. Link your local repo to remote.mock/edu-git to sync changes.'}
+                    : `This remote repo is not connected yet. Link your local repo to ${remoteUrl} to sync changes.`}
                 </p>
                 {remoteState.connected ? (
                   <div className="remote-repo-modal__card">
-                    <h3>Repository tree</h3>
+                    <div className="remote-repo-modal__row">
+                      <h3>Repository tree</h3>
+                      <div className="remote-repo-modal__actions">
+                        <div className="remote-repo-modal__clone">
+                          <button
+                            type="button"
+                            className="remote-repo-modal__action-button"
+                            onClick={() => setCloneMenuOpen((prev) => !prev)}
+                            data-cy="remote-clone-toggle"
+                          >
+                            <span className="remote-repo-modal__action-icon" aria-hidden="true">
+                              {cloneIcon}
+                            </span>
+                            Clone
+                          </button>
+                          {cloneMenuOpen ? (
+                            <div className="remote-repo-modal__clone-menu">
+                              <div className="remote-repo-modal__clone-title">
+                                Clone this repo
+                              </div>
+                              <pre>git clone {remoteUrl}</pre>
+                            </div>
+                          ) : null}
+                        </div>
+                        <div className="remote-repo-modal__fork">
+                          <button
+                            type="button"
+                            className="remote-repo-modal__action-button remote-repo-modal__action-button--fork"
+                            onClick={() => {
+                              setForkMenuOpen((prev) => !prev)
+                              setForkError('')
+                            }}
+                            data-cy="remote-fork-toggle"
+                          >
+                            <span className="remote-repo-modal__action-icon" aria-hidden="true">
+                              {forkIcon}
+                            </span>
+                            Fork
+                          </button>
+                          {forkMenuOpen ? (
+                            <div className="remote-repo-modal__fork-menu">
+                              <div className="remote-repo-modal__clone-title">
+                                Fork this repo
+                              </div>
+                              <label className="remote-repo-modal__mr-field">
+                                <span>New repo name</span>
+                                <input
+                                  type="text"
+                                  value={forkName}
+                                  onChange={(event) => {
+                                    setForkName(event.target.value)
+                                    setForkError('')
+                                  }}
+                                  placeholder={`${activeRepo}-fork`}
+                                  data-cy="remote-fork-input"
+                                />
+                              </label>
+                              {forkError ? (
+                                <div className="remote-repo-modal__home-error">{forkError}</div>
+                              ) : null}
+                              <div className="remote-repo-modal__home-actions">
+                                <button
+                                  type="button"
+                                  className="remote-repo-modal__mr-confirm-cancel"
+                                  onClick={() => {
+                                    setForkMenuOpen(false)
+                                    setForkName('')
+                                    setForkError('')
+                                  }}
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="button"
+                                  className="remote-repo-modal__mr-create"
+                                  disabled={!forkName.trim()}
+                                  onClick={async () => {
+                                    const rawName = forkName.trim()
+                                    if (!rawName) {
+                                      return
+                                    }
+                                    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(rawName)) {
+                                      setForkError(
+                                        'Use letters, numbers, dots, dashes, or underscores.'
+                                      )
+                                      return
+                                    }
+                                    const forkPath = `${REMOTE_ROOT}/${rawName}`
+                                    try {
+                                      await pfs.stat(forkPath)
+                                      setForkError('A repo with this name already exists.')
+                                      return
+                                    } catch (error) {
+                                      // Not found means we can create it.
+                                    }
+                                    try {
+                                      await copyDir(pfs, repoPath, forkPath)
+                                      setRemoteRepos((prev) =>
+                                        [...prev, rawName]
+                                          .filter((value, index, arr) => arr.indexOf(value) === index)
+                                          .sort()
+                                      )
+                                      setForkMenuOpen(false)
+                                      setForkName('')
+                                      setForkError('')
+                                      onNavigate(`/${rawName}`)
+                                    } catch (error) {
+                                      setForkError('Unable to fork repo. Try again.')
+                                    }
+                                  }}
+                                  data-cy="remote-fork-submit"
+                                >
+                                  Create fork
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                        <div className="remote-repo-modal__delete">
+                          <button
+                            type="button"
+                            className="remote-repo-modal__action-button remote-repo-modal__action-button--danger"
+                            onClick={() => setDeleteRepoOpen((prev) => !prev)}
+                            data-cy="remote-delete-toggle"
+                          >
+                            Delete
+                          </button>
+                          {deleteRepoOpen ? (
+                            <div className="remote-repo-modal__delete-menu">
+                              <div className="remote-repo-modal__clone-title">
+                                Delete this repo?
+                              </div>
+                              <p className="remote-repo-modal__delete-text">
+                                This removes the remote repo and all of its data.
+                              </p>
+                              <div className="remote-repo-modal__home-actions">
+                                <button
+                                  type="button"
+                                  className="remote-repo-modal__mr-confirm-cancel"
+                                  onClick={() => setDeleteRepoOpen(false)}
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="button"
+                                  className="remote-repo-modal__delete-confirm"
+                                  onClick={async () => {
+                                    try {
+                                      await pfs.rm(repoPath, { recursive: true })
+                                    } catch (error) {
+                                      // Ignore delete errors to keep flow smooth.
+                                    }
+                                    setRemoteRepos((prev) =>
+                                      prev.filter((repo) => repo !== activeRepo)
+                                    )
+                                    setDeleteRepoOpen(false)
+                                    onNavigate('/')
+                                  }}
+                                  data-cy="remote-delete-confirm"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
                     {remoteTree.length === 0 ? (
                       <div className="remote-repo-modal__empty">No files found.</div>
                     ) : (
@@ -1191,6 +1861,12 @@ function RemoteRepoModal({
                     )}
                   </div>
                 ) : null}
+                {remoteState.connected && remoteReadme ? (
+                  <div className="remote-repo-modal__card">
+                    <h3>README</h3>
+                    <pre className="remote-repo-modal__readme">{remoteReadme}</pre>
+                  </div>
+                ) : null}
                 {!remoteState.connected ? (
                   <>
                     <div className="remote-repo-modal__card" data-cy="remote-init-card">
@@ -1201,14 +1877,26 @@ function RemoteRepoModal({
                     </div>
                     <div className="remote-repo-modal__card" data-cy="remote-connect-card">
                       <h3>Connect to remote</h3>
-                      <pre>git remote add origin {BASE_URL}</pre>
+                      <pre>git remote add origin {remoteUrl}</pre>
                       <pre>git push -u origin main</pre>
                     </div>
                   </>
                 ) : null}
               </>
             )}
-            {page?.path === '/branches' && !fileRoute && (
+            {!showRepoMissing &&
+            activeRepo &&
+            !remoteState.connected &&
+            repoSubPath !== '/' &&
+            !fileRoute ? (
+              <div className="remote-repo-modal__empty">
+                Connect this repo first to view branches, commits, and merge requests.
+              </div>
+            ) : null}
+            {!showRepoMissing &&
+              remoteState.connected &&
+              page?.path === '/branches' &&
+              !fileRoute && (
               <>
                 <h2>Branches</h2>
                 {remoteState.branches.length === 0 ? (
@@ -1227,7 +1915,10 @@ function RemoteRepoModal({
                 )}
               </>
             )}
-            {page?.path === '/commits' && !fileRoute && (
+            {!showRepoMissing &&
+              remoteState.connected &&
+              page?.path === '/commits' &&
+              !fileRoute && (
               <>
                 <div className="remote-repo-modal__header">
                   <h2>Commits</h2>
@@ -1268,7 +1959,10 @@ function RemoteRepoModal({
                 )}
               </>
             )}
-            {page?.path === '/compare' && !fileRoute && (
+            {!showRepoMissing &&
+              remoteState.connected &&
+              page?.path === '/compare' &&
+              !fileRoute && (
               <>
                 <div className="remote-repo-modal__header">
                   <h2>Compare</h2>
@@ -1365,7 +2059,7 @@ function RemoteRepoModal({
                               ])
                               setMrTitle('')
                               setMrMenuOpen(false)
-                              onNavigate(`/mr/${slug}`)
+                              navigateRepo(`/mr/${slug}`)
                             }}
                           >
                             Create
@@ -1422,7 +2116,11 @@ function RemoteRepoModal({
                 )}
               </>
             )}
-            {page?.path === '/merge-requests' && !fileRoute && !mrRoute && (
+            {!showRepoMissing &&
+              remoteState.connected &&
+              page?.path === '/merge-requests' &&
+              !fileRoute &&
+              !mrRoute && (
               <>
                 <div className="remote-repo-modal__header">
                   <h2>Merge Requests</h2>
@@ -1454,7 +2152,7 @@ function RemoteRepoModal({
                           type="button"
                           key={mr.id}
                           className="remote-repo-modal__mr-row"
-                          onClick={() => onNavigate(`/mr/${mr.slug}`)}
+                          onClick={() => navigateRepo(`/mr/${mr.slug}`)}
                           data-cy="remote-mr-row"
                           data-slug={mr.slug}
                         >
@@ -1476,7 +2174,7 @@ function RemoteRepoModal({
                 )}
               </>
             )}
-            {mrRoute && activeMr && !fileRoute && (
+            {mrRoute && activeMr && !fileRoute && !showRepoMissing && remoteState.connected && (
               <>
                 <div className="remote-repo-modal__header">
                   <div className="remote-repo-modal__mr-title">
@@ -1559,11 +2257,16 @@ function RemoteRepoModal({
                             setDeleteBranchOnMerge(false)
                             return
                           }
-                          const gitdir = `${REMOTE_PATH}/.git`
+                          if (!repoPath || !repoGitDir) {
+                            setMrAction(null)
+                            setDeleteBranchOnMerge(false)
+                            return
+                          }
+                          const gitdir = repoGitDir
                           try {
                             await git.merge({
                               fs,
-                              dir: REMOTE_PATH,
+                              dir: repoPath,
                               gitdir,
                               ours: activeMr.base,
                               theirs: activeMr.compare,
@@ -1598,7 +2301,7 @@ function RemoteRepoModal({
                             try {
                               await git.deleteRef({
                                 fs,
-                                dir: REMOTE_PATH,
+                                dir: repoPath,
                                 gitdir,
                                 ref: `refs/heads/${activeMr.compare}`,
                               })
@@ -1900,7 +2603,7 @@ function RemoteRepoModal({
                 </div>
               </>
             )}
-            {mrRoute && !activeMr && !fileRoute && (
+            {mrRoute && !activeMr && !fileRoute && !showRepoMissing && remoteState.connected && (
               <div className="remote-repo-modal__notfound">
                 <div className="remote-repo-modal__notfound-code">404</div>
                 <div className="remote-repo-modal__notfound-title">Merge Request not found</div>
@@ -1917,13 +2620,13 @@ function RemoteRepoModal({
                     <span>Branch</span>
                     <select
                       value={fileRoute.branch}
-                      onChange={(event) => {
-                        const nextBranch = event.target.value
-                        const nextRoute = buildFilePath(nextBranch, fileRoute.filePath)
-                        onNavigate(nextRoute)
-                        setSelectedBranch(nextBranch)
-                      }}
-                    >
+                        onChange={(event) => {
+                          const nextBranch = event.target.value
+                          const nextRoute = buildFilePath(nextBranch, fileRoute.filePath)
+                          navigateRepo(nextRoute)
+                          setSelectedBranch(nextBranch)
+                        }}
+                      >
                       {remoteState.branches.map((branch) => (
                         <option key={branch} value={branch}>
                           {branch}
@@ -1950,7 +2653,7 @@ function RemoteRepoModal({
                 )}
               </div>
             )}
-            {!page && !fileRoute && !mrRoute && (
+            {!page && !fileRoute && !mrRoute && !route.isHome && !showRepoMissing && (
               <div className="remote-repo-modal__notfound">
                 <div className="remote-repo-modal__notfound-code">404</div>
                 <div className="remote-repo-modal__notfound-title">Page not found</div>

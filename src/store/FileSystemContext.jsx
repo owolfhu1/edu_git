@@ -4,6 +4,8 @@ import LightningFS from '@isomorphic-git/lightning-fs'
 import readmeContent from '../content/README.txt?raw'
 import gitCheatSheetContent from '../content/GIT_CHEAT_SHEET.txt?raw'
 import gitInfoContent from '../content/GIT_INFO.txt?raw'
+import remoteDemoReadmeContent from '../content/REMOTE_DEMO_README.txt?raw'
+import remoteDemoInfoContent from '../content/REMOTE_DEMO_INFO.txt?raw'
 import mockReadmeContent from '../content/MOCK_README.txt?raw'
 import mockDocsOverviewContent from '../content/MOCK_DOCS_OVERVIEW.txt?raw'
 import mockDocsSetupContent from '../content/MOCK_DOCS_SETUP.txt?raw'
@@ -247,7 +249,14 @@ function FileSystemProvider({ children }) {
   const refreshTree = useCallback(async () => {
     const nextTree = await buildTree(pfs, '/')
     setTree(nextTree)
-  }, [pfs])
+  }, [
+    gitCheatSheetContent,
+    gitInfoContent,
+    pfs,
+    readmeContent,
+    remoteDemoInfoContent,
+    remoteDemoReadmeContent,
+  ])
 
   const statPath = useCallback(
     async (path) => {
@@ -285,12 +294,65 @@ function FileSystemProvider({ children }) {
     [pfs, statPath]
   )
 
+  const seedDemoRemote = useCallback(async () => {
+    const demoPath = '/.remotes/edu-git'
+    const demoGitdir = `${demoPath}/.git`
+    await ensureDir(pfs, '/.remotes')
+    await ensureDir(pfs, demoPath)
+    await ensureFile(pfs, `${demoPath}/README.txt`, remoteDemoReadmeContent)
+    await ensureFile(pfs, `${demoPath}/INFO.txt`, remoteDemoInfoContent)
+    let hasCommits = false
+    try {
+      const commits = await git.log({
+        fs: fsRef.current,
+        dir: demoPath,
+        gitdir: demoGitdir,
+      })
+      hasCommits = commits.length > 0
+    } catch (error) {
+      hasCommits = false
+    }
+    if (hasCommits) {
+      return
+    }
+    try {
+      await git.init({
+        fs: fsRef.current,
+        dir: demoPath,
+        gitdir: demoGitdir,
+        defaultBranch: 'main',
+      })
+    } catch (error) {
+      // Ignore init errors if repo already exists.
+    }
+    await git.add({
+      fs: fsRef.current,
+      dir: demoPath,
+      gitdir: demoGitdir,
+      filepath: 'README.txt',
+    })
+    await git.add({
+      fs: fsRef.current,
+      dir: demoPath,
+      gitdir: demoGitdir,
+      filepath: 'INFO.txt',
+    })
+    await git.commit({
+      fs: fsRef.current,
+      dir: demoPath,
+      gitdir: demoGitdir,
+      author: { name: 'Edu Git', email: 'edu@example.com' },
+      message: 'Initial remote repo setup',
+    })
+  }, [pfs, remoteDemoInfoContent, remoteDemoReadmeContent])
+
   const seedDefault = useCallback(async () => {
     await ensureDir(pfs, '/src')
     await ensureFile(pfs, '/src/README.txt', readmeContent)
     await ensureFile(pfs, '/GIT_CHEAT_SHEET.txt', gitCheatSheetContent)
     await ensureFile(pfs, '/GIT_INFO.txt', gitInfoContent)
-  }, [pfs])
+    await seedDemoRemote()
+  }, [gitCheatSheetContent, gitInfoContent, pfs, readmeContent, seedDemoRemote])
 
   const loadEnvironment = useCallback(
     async (snapshotString) => {
@@ -521,6 +583,7 @@ function FileSystemProvider({ children }) {
     await ensureFile(pfs, '/notes/ideas.txt', mockNotesIdeasContent)
     await ensureFile(pfs, '/GIT_CHEAT_SHEET.txt', gitCheatSheetContent)
     await ensureFile(pfs, '/GIT_INFO.txt', gitInfoContent)
+    await seedDemoRemote()
     const gitdir = '/.git'
     await git.init({ fs: fsRef.current, dir: '/', gitdir, defaultBranch: 'main' })
     const statusMatrix = await git.statusMatrix({ fs: fsRef.current, dir: '/', gitdir })
@@ -542,7 +605,7 @@ function FileSystemProvider({ children }) {
       dir: '/',
       gitdir,
       path: 'remote.origin.url',
-      value: 'https://remote.mock/edu-git',
+      value: 'https://remote.mock/trail-tracker',
     })
     await git.setConfig({
       fs: fsRef.current,
@@ -600,9 +663,9 @@ function FileSystemProvider({ children }) {
       }
     }
     await ensureRemoteDir('/.remotes')
-    await ensureRemoteDir('/.remotes/origin')
-    const remotePath = '/.remotes/origin'
-    const remoteGitdir = '/.remotes/origin/.git'
+    await ensureRemoteDir('/.remotes/trail-tracker')
+    const remotePath = '/.remotes/trail-tracker'
+    const remoteGitdir = '/.remotes/trail-tracker/.git'
     try {
       await pfs.stat(remoteGitdir)
     } catch (error) {

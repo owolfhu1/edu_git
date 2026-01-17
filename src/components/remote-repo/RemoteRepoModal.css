@@ -186,6 +186,18 @@
   overflow: auto;
 }
 
+.remote-repo-modal__readme {
+  margin: 0;
+  padding: 0.85rem;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(15, 23, 42, 0.6);
+  font-family: "Space Mono", monospace;
+  font-size: 0.85rem;
+  color: #e2e8f0;
+  white-space: pre-wrap;
+}
+
 .remote-repo-modal__note {
   font-size: 0.8rem;
   color: #94a3b8;
@@ -279,6 +291,30 @@
   flex-direction: column;
   gap: 0.75rem;
   margin-top: 1rem;
+}
+
+.remote-repo-modal__repo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.remote-repo-modal__repo-item {
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(15, 23, 42, 0.5);
+  color: #e2e8f0;
+  border-radius: 12px;
+  padding: 0.7rem 1rem;
+  cursor: pointer;
+  text-align: left;
+  font-family: "Space Mono", monospace;
+  font-size: 0.9rem;
+}
+
+.remote-repo-modal__repo-item:hover {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.35);
 }
 
 .remote-repo-modal__list-item {
@@ -407,6 +443,142 @@
 .remote-repo-modal__mr-create:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.remote-repo-modal__clone {
+  position: relative;
+}
+
+.remote-repo-modal__fork {
+  position: relative;
+}
+
+.remote-repo-modal__actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.remote-repo-modal__delete {
+  position: relative;
+}
+
+.remote-repo-modal__action-button {
+  border: none;
+  border-radius: 999px;
+  padding: 0.4rem 0.85rem;
+  background: rgba(59, 130, 246, 0.2);
+  color: #bfdbfe;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.remote-repo-modal__action-button--fork {
+  background: rgba(34, 197, 94, 0.2);
+  color: #86efac;
+}
+
+.remote-repo-modal__action-button--danger {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fecaca;
+}
+
+.remote-repo-modal__action-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.remote-repo-modal__action-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.remote-repo-modal__clone-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.5rem);
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 12px;
+  padding: 0.75rem;
+  min-width: 220px;
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.4);
+  z-index: 10;
+}
+
+.remote-repo-modal__clone-title {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  margin-bottom: 0.4rem;
+}
+
+.remote-repo-modal__clone-menu pre {
+  margin: 0;
+  padding: 0.5rem 0.6rem;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  font-size: 0.8rem;
+}
+
+.remote-repo-modal__fork-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.5rem);
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 12px;
+  padding: 0.75rem;
+  min-width: 260px;
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.4);
+  z-index: 10;
+}
+
+.remote-repo-modal__delete-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.5rem);
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 12px;
+  padding: 0.75rem;
+  min-width: 240px;
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.4);
+  z-index: 10;
+}
+
+.remote-repo-modal__delete-text {
+  margin: 0.45rem 0 0;
+  font-size: 0.85rem;
+  color: #fecaca;
+}
+
+.remote-repo-modal__delete-confirm {
+  border: none;
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+  background: #ef4444;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.remote-repo-modal__home-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+
+.remote-repo-modal__home-error {
+  margin-top: 0.4rem;
+  color: #fca5a5;
+  font-size: 0.85rem;
 }
 
 .remote-repo-modal__diff-card {
