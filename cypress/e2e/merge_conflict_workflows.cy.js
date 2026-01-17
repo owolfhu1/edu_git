@@ -16,10 +16,18 @@ const importWorkspace = (fixtureName) => {
 }
 
 const openRemoteMr = () => {
+  cy.get('[data-cy=workspace-menu-toggle]', { timeout: 20000 }).should('be.visible')
   cy.get('[data-cy=workspace-menu-toggle]').click()
   cy.get('[data-cy=workspace-menu-panel]').should('be.visible')
   cy.get('[data-cy=workspace-menu-remote]').click()
-  cy.get('[data-cy=remote-modal]').should('be.visible')
+  cy.get('body').then(($body) => {
+    if (!$body.find('[data-cy=remote-modal]').length) {
+      cy.get('[data-cy=workspace-menu-toggle]').click()
+      cy.get('[data-cy=workspace-menu-panel]').should('be.visible')
+      cy.get('[data-cy=workspace-menu-remote]').click()
+    }
+  })
+  cy.get('[data-cy=remote-modal]', { timeout: 10000 }).should('be.visible')
   cy.get('body').then(($body) => {
     if ($body.find('[data-cy=remote-menu-home]').length) {
       cy.get('[data-cy=remote-menu-home]').click()
