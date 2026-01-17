@@ -167,4 +167,22 @@ describe('git stash commands', () => {
       expect(content).toContain('>>>>>>>')
     })
   })
+
+  describe('binary files', () => {
+    it('preserves binary content through stash apply', async () => {
+      const original = Buffer.from([0, 255, 10, 0, 5])
+      await ws.fs.promises.writeFile('/binary.dat', original)
+      await ws.git('add /binary.dat')
+      await ws.git('commit -m "add binary"')
+
+      const modified = Buffer.from([1, 2, 3, 4, 5, 6])
+      await ws.fs.promises.writeFile('/binary.dat', modified)
+
+      await ws.git('stash -m "binary stash"')
+      await ws.git('stash apply')
+
+      const restored = await ws.fs.promises.readFile('/binary.dat')
+      expect(Buffer.compare(restored, modified)).toBe(0)
+    })
+  })
 })

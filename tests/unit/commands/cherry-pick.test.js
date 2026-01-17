@@ -152,6 +152,36 @@ describe('git cherry-pick', () => {
     })
   })
 
+  describe('cherry-pick merge commits', () => {
+    it('cherry-picks a merge commit with -m 1', async () => {
+      await ws.writeFile('main.txt', 'main base')
+      await ws.git('add .')
+      await ws.git('commit -m "main base"')
+
+      await ws.git('checkout -b feature')
+      await ws.writeFile('feature.txt', 'feature change')
+      await ws.git('add .')
+      await ws.git('commit -m "feature change"')
+
+      await ws.git('checkout main')
+      await ws.writeFile('main.txt', 'main change')
+      await ws.git('add .')
+      await ws.git('commit -m "main change"')
+
+      await ws.git('merge feature')
+      const mergeSha = await ws.getHead()
+
+      await ws.git('checkout HEAD~2')
+      await ws.git('checkout -b other')
+
+      const { output } = await ws.git(`cherry-pick -m 1 ${mergeSha}`)
+      expect(output.toLowerCase()).toMatch(/cherry-pick|applied|merged|commit|\[/)
+
+      const featureContent = await ws.readFile('feature.txt')
+      expect(featureContent).toBe('feature change')
+    })
+  })
+
   describe('rev-parse', () => {
     it('returns full SHA with rev-parse HEAD', async () => {
       const { output } = await ws.git('rev-parse HEAD')

@@ -70,6 +70,41 @@ describe('git merge and rebase', () => {
 
       expect(output.toLowerCase()).toMatch(/merged|fast-forward|already/)
     })
+
+    it('cleans stale merge state files after successful merge', async () => {
+      await ws.git('checkout -b feature')
+      await ws.writeFile('docs/readme.txt', 'feature readme')
+      await ws.git('add .')
+      await ws.git('commit -m "feature readme"')
+
+      await ws.git('checkout main')
+      await ws.writeFile('src/index.txt', 'main content')
+      await ws.git('add .')
+      await ws.git('commit -m "main change"')
+
+      const mergeHeadPath = `${ws.gitdir}/MERGE_HEAD`
+      const mergeMsgPath = `${ws.gitdir}/MERGE_MSG`
+      await ws.fs.promises.writeFile(mergeHeadPath, 'deadbeef\n', 'utf8')
+      await ws.fs.promises.writeFile(mergeMsgPath, 'Merge feature into main\n', 'utf8')
+
+      await ws.git('merge feature')
+
+      await expect(ws.fs.promises.stat(mergeHeadPath)).rejects.toThrow()
+      await expect(ws.fs.promises.stat(mergeMsgPath)).rejects.toThrow()
+    })
+
+    it('cleans stale merge state files when already up to date', async () => {
+      const mergeHeadPath = `${ws.gitdir}/MERGE_HEAD`
+      const mergeMsgPath = `${ws.gitdir}/MERGE_MSG`
+      await ws.fs.promises.writeFile(mergeHeadPath, 'deadbeef\n', 'utf8')
+      await ws.fs.promises.writeFile(mergeMsgPath, 'Merge main into main\n', 'utf8')
+
+      const { output } = await ws.git('merge main')
+      expect(output).toContain('Already up to date')
+
+      await expect(ws.fs.promises.stat(mergeHeadPath)).rejects.toThrow()
+      await expect(ws.fs.promises.stat(mergeMsgPath)).rejects.toThrow()
+    })
   })
 
   describe('git rebase', () => {
